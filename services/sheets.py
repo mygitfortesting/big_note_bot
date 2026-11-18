@@ -374,25 +374,17 @@ class NoteRepository(_SheetBound):
 
     def list_sources(self) -> list[str]:
         """Уникальные источники (колонка SOURCE), по алфавиту без учёта регистра."""
-        headers = self.headers()
-        if not headers:
-            return []
-        source_col = source_column_index(headers) - 1
-        seen: dict[str, str] = {}
-        for row in self._all_values()[1:]:
-            source = cell(row, source_col).strip()
-            if source:
-                seen.setdefault(source.lower(), source)
-        return [seen[key] for key in sorted(seen)]
+        return [source for source, _ in self.list_sources_with_counts()]
 
     def list_sources_with_counts(self) -> list[tuple[str, int]]:
         """(источник, количество заметок) по алфавиту без учёта регистра."""
-        headers = self.headers()
+        values = self._all_values()
+        headers = headers_of(values)
         if not headers:
             return []
         source_col = source_column_index(headers) - 1
         seen: dict[str, tuple[str, int]] = {}
-        for row in self._all_values()[1:]:
+        for row in values[1:]:
             source = cell(row, source_col).strip()
             if not source:
                 continue
@@ -403,27 +395,72 @@ class NoteRepository(_SheetBound):
 
     def list_notes(self) -> list[Note]:
         """Все заметки листа (с ID и NAME), порядок — как в таблице."""
+        return self._all_notes()[0]
+
+    def _all_notes(self) -> tuple[list[Note], list[str]]:
+        """
+        Заметки и шапка одним проходом, с дозаполнением пустых ID.
+
+        Ручная строка в Google Таблице (SOURCE/NAME есть, ID пуст) получает
+        сгенерированный ID, который сразу записывается в ячейку — иначе
+        такую заметку нельзя открыть по кнопке в Telegram.
+        """
         values = self._all_values()
         headers = headers_of(values)
         if not headers:
-            return []
+            return [], []
+        self._ensure_missing_ids(values, headers)
         width = len(headers)
-        return [
+        notes = [
             Note(row_index, pad_row(row, width))
             for row_index, row in enumerate(values[1:], start=2)
             if _is_data_row(row, headers)
         ]
+        return notes, headers
+
+    def _ensure_missing_ids(self, values: list[list[str]], headers: list[str]) -> None:
+        """
+        Дозаполняет пустые ID у строк с SOURCE или NAME (правки руками).
+
+        Работает по снимку ``values`` (строка 1 — шапка) и правит его же,
+        чтобы вызывающий код сразу видел новые ID без повторного чтения.
+        """
+        id_col = id_column_index(headers)
+        source_col = source_column_index(headers)
+        name_col = name_column_index(headers)
+        existing = {
+            cell(row, id_col - 1).strip()
+            for row in values[1:]
+            if cell(row, id_col - 1).strip()
+        }
+        changed = False
+        for row_index, row in enumerate(values[1:], start=2):
+            if cell(row, id_col - 1).strip():
+                continue
+            if not (
+                cell(row, source_col - 1).strip() or cell(row, name_col - 1).strip()
+            ):
+                continue
+            new_id = generate_unique_id(existing)
+            existing.add(new_id)
+            while len(row) < len(headers):
+                row.append("")
+            row[id_col - 1] = new_id
+            self.sheet.update_cell(row_index, id_col, new_id)
+            changed = True
+        if changed:
+            invalidate_cache(self._user_id)
 
     def list_by_source(self, source: str) -> list[Note]:
         """Заметки одного источника, отсортированные по NAME без учёта регистра."""
         wanted = (source or "").strip().lower()
-        headers = self.headers()
+        all_notes, headers = self._all_notes()
         if not headers:
             return []
         source_col = source_column_index(headers)
         notes = [
             note
-            for note in self.list_notes()
+            for note in all_notes
             if note.value(source_col).strip().lower() == wanted
         ]
         name_col = name_column_index(headers)
@@ -441,13 +478,13 @@ class NoteRepository(_SheetBound):
         wanted = (query or "").strip().lower()
         if not wanted:
             return []
-        headers = self.headers()
+        all_notes, headers = self._all_notes()
         if not headers:
             return []
         name_col = name_column_index(headers)
         exact: list[Note] = []
         partial: list[Note] = []
-        for note in self.list_notes():
+        for note in all_notes:
             name = note.value(name_col).strip().lower()
             if not name:
                 continue
@@ -460,7 +497,7 @@ class NoteRepository(_SheetBound):
     def locate(self, note_id: str) -> tuple[int, Note] | None:
         """(номер строки, заметка) или None, если записи с таким ID нет."""
         wanted = str(note_id).strip()
-        for note in self.list_notes():
+        for note in self._all_notes()[0]:
             if note.note_id == wanted:
                 return note.row_index, note
         return None
@@ -749,42 +786,77 @@ class ColumnService(_SheetBound):
         self.sheet.update_cell(1, col_index, name)
         invalidate_cache(self._user_id)
 
-    def reorder(self, new_order: list[int]) -> None:
+    def reorder(self, order: list[int]) -> list[str]:
         """
-        Переставляет колонки по списку номеров (1-based) без потери данных.
+        Переставляет все колонки листа по списку номеров 1-based.
 
-        Структура листа защищена на уровне сервиса: ID, SOURCE, NAME остаются
-        первыми тремя колонками в этом порядке, COMMENT — последней.
+        ``order`` — точная перестановка ``1..width``: без пропусков и дублей.
+        Закреплённая структура проверяется здесь же: первые три позиции —
+        ``ID``, ``SOURCE``, ``NAME``, последняя — ``COMMENT``. Шапка и все
+        строки перезаписываются, кэш сбрасывается. Возвращает новую шапку.
         """
         data = self._all_values()
-        width = len(headers_of(data))
-        if sorted(new_order) != list(range(1, width + 1)):
-            raise ValueError(
-                "New order must be a permutation of column numbers "
-                f"1..{width}, got {new_order}"
-            )
         headers = headers_of(data)
-        expected = [_index_of(headers, header) for header in LEADING_HEADERS]
-        expected = [index for index in expected if index is not None]
-        leading = new_order[: len(expected)]
-        if leading != expected:
+        if not headers:
+            return []
+        width = len(headers)
+        if sorted(order) != list(range(1, width + 1)):
+            raise ValueError(f"Order must be a permutation of 1..{width}, got {order}")
+        expected_leading = list(range(1, len(LEADING_HEADERS) + 1))
+        if order[: len(expected_leading)] != expected_leading:
             raise ValueError(
                 "Columns ID, SOURCE and NAME are service columns and must stay "
                 "first (in that order)."
             )
-        comment_col = comment_column_index(headers)
-        if comment_col is not None and new_order[-1] != comment_col:
+        if comment_column_index(headers) is not None and order[-1] != width:
             raise ValueError(
-                f"Column {comment_col} ({COMMENT_HEADER}) is a service column "
+                f"Column {width} ({COMMENT_HEADER}) is a service column "
                 "and must stay last."
             )
-        reordered = [
-            pad_row([cell(row, index - 1) for index in new_order], width)
-            for row in data
-        ]
-        self.sheet.clear()
-        self.sheet.update(range_name="A1", values=reordered)
+        rows = [pad_row(row, width) for row in data]
+        reordered = [[cell(row, index - 1) for index in order] for row in rows]
+        last_col = column_letter(width)
+        self.sheet.update(
+            range_name=f"A1:{last_col}{len(reordered)}",
+            values=reordered,
+            value_input_option="RAW",
+        )
         invalidate_cache(self._user_id)
+        return reordered[0]
+
+    def reorder_middle(self, order: list[int]) -> list[str]:
+        """
+        Меняет порядок только изменяемых колонок (между NAME и COMMENT).
+
+        ``order`` — точная перестановка номеров 1..N средних колонок,
+        1-based. Закреплённые ``ID``/``SOURCE``/``NAME`` и ``COMMENT``
+        подставляются программно, поэтому их нельзя ни сдвинуть, ни потерять.
+        Вся запись листа живёт в :meth:`reorder`.
+        """
+        data = self._all_values()
+        headers = headers_of(data)
+        if not headers:
+            return []
+        middle_indexes = self.middle_indexes(headers)
+        if sorted(order) != list(range(1, len(middle_indexes) + 1)):
+            raise ValueError(
+                f"Order must be a permutation of 1..{len(middle_indexes)}, got {order}"
+            )
+        width = len(headers)
+        leading_len = min(len(LEADING_HEADERS), width)
+        full_order = list(range(1, leading_len + 1))
+        full_order.extend(middle_indexes[position - 1] for position in order)
+        if comment_column_index(headers) is not None:
+            full_order.append(width)
+        return self.reorder(full_order)
+
+    def middle_indexes(self, headers: list[str]) -> list[int]:
+        """Номера (1-based) изменяемых колонок — между NAME и COMMENT."""
+        first_free = len(LEADING_HEADERS) + 1
+        last_free = len(headers)
+        if comment_column_index(headers) is not None:
+            last_free = len(headers) - 1
+        return [index for index in range(first_free, last_free + 1)]
 
 
 __all__ = [

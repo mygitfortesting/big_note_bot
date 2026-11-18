@@ -172,6 +172,41 @@ def test_find_by_name_empty_query_returns_nothing() -> None:
     assert repo.find_by_name("   ") == []
 
 
+# --- Автозаполнение ID для ручных строк ---
+
+
+def test_manual_row_without_id_gets_generated_id() -> None:
+    """Строка, вписанная руками (SOURCE/NAME без ID), получает ID в таблицу."""
+    repo, sheet = repo_for([["", "Blog", "Manual", "", "", "", ""]])
+
+    notes = repo.list_notes()
+
+    assert len(notes) == 1
+    generated = notes[0].note_id
+    assert generated
+    assert sheet.rows[1][0] == generated  # ID записан в колонку A
+    assert repo.get(generated) is not None
+
+
+def test_manual_row_without_id_is_found_when_listing_source() -> None:
+    """Такая заметка видна и в списке источника (путь чтения для кнопок)."""
+    repo, sheet = repo_for([["", "Blog", "Manual", "", "", "", ""]])
+
+    notes = repo.list_by_source("blog")
+
+    assert len(notes) == 1
+    assert sheet.rows[1][0]
+    assert notes[0].note_id == sheet.rows[1][0]
+
+
+def test_empty_row_gets_no_id() -> None:
+    """Полностью пустая строка так и остаётся без ID."""
+    repo, sheet = repo_for([["", "", "", "", "", "", ""]])
+
+    assert repo.list_notes() == []
+    assert sheet.rows[1][0] == ""
+
+
 # --- Переименование и удаление источника ---
 
 
@@ -369,6 +404,7 @@ def test_user_column_can_be_renamed_and_deleted() -> None:
 
 
 def test_reorder_rejects_moving_leading_columns() -> None:
+    """Полный порядок не может двигать ID, SOURCE, NAME из начала."""
     service, _ = columns_for([])
     width = len(NOTES_HEADERS)
 
@@ -378,33 +414,49 @@ def test_reorder_rejects_moving_leading_columns() -> None:
         service.reorder(order)
 
 
-def test_reorder_rejects_comment_not_last() -> None:
-    service, _ = columns_for([])
-    width = len(NOTES_HEADERS)
-    comment_col = NOTES_HEADERS.index(COMMENT_HEADER) + 1
-
-    order = [i for i in range(1, width + 1) if i != comment_col]
-    order.insert(3, comment_col)
-    with pytest.raises(ValueError):
-        service.reorder(order)
-
-
 def test_reorder_keeps_data() -> None:
+    """Перестановка полного порядка переносит данные ячеек вместе с шапкой."""
     service, sheet = columns_for([note_row("1", "Blog", "Note", "Desc")])
-
     width = len(NOTES_HEADERS)
+
     order = list(range(1, width + 1))
-    # DESCRIPTION (4) и URL (5) меняются местами
-    order[3], order[4] = order[4], order[3]
+    order[3], order[4] = order[4], order[3]  # URL и DESCRIPTION
+    header = service.reorder(order)
 
-    service.reorder(order)
-
-    headers = sheet.rows[0]
-    assert headers[:3] == [ID_HEADER, SOURCE_HEADER, NAME_HEADER]
-    assert headers[-1] == COMMENT_HEADER
-    row = dict(zip(headers, sheet.rows[1]))
+    assert header[:3] == [ID_HEADER, SOURCE_HEADER, NAME_HEADER]
+    assert header[-1] == COMMENT_HEADER
+    row = dict(zip(sheet.rows[0], sheet.rows[1]))
     assert row[NAME_HEADER] == "Note"
     assert row["DESCRIPTION"] == "Desc"
+
+
+def test_reorder_middle_rejects_bad_permutation() -> None:
+    """Повторы и чужие номера в порядке отклоняются."""
+    service, _ = columns_for([])
+
+    with pytest.raises(ValueError):
+        service.reorder_middle([1, 1, 2])
+    with pytest.raises(ValueError):
+        service.reorder_middle([1, 2])
+
+
+def test_reorder_middle_keeps_leading_and_comment() -> None:
+    """Перестановка средних колонок сохраняет ID/SOURCE/NAME и COMMENT."""
+    service, sheet = columns_for(
+        [note_row("1", "Blog", "Note", "Desc", "https://x", "fid", "c")]
+    )
+
+    header = service.reorder_middle([2, 1, 3])
+
+    assert header[:3] == [ID_HEADER, SOURCE_HEADER, NAME_HEADER]
+    assert header[-1] == COMMENT_HEADER
+    assert header[3:6] == ["URL", "DESCRIPTION", SCREEN_HEADER]
+    row = dict(zip(sheet.rows[0], sheet.rows[1]))
+    assert row["DESCRIPTION"] == "Desc"
+    assert row["URL"] == "https://x"
+    assert row[SCREEN_HEADER] == "fid"
+    assert row[COMMENT_HEADER] == "c"
+    assert row[NAME_HEADER] == "Note"
 
 
 def test_short_rows_are_padded_to_header_width() -> None:

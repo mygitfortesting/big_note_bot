@@ -36,7 +36,7 @@ from services.telegram_io import (
     show_main_menu,
     status_message,
 )
-from services.text_utils import escape_html, note_card_lines
+from services.text_utils import escape_html, note_card_text
 
 logger = logging.getLogger(__name__)
 
@@ -92,9 +92,10 @@ class NoteContext:
         ]
 
     def card_text(self) -> str:
-        """Карточка: ТОЛЬКО заполненные колонки (пустые пропускаются)."""
-        lines = note_card_lines(self.headers, self.note.values)
-        return "\n".join(lines) or f"<b>📝 {escape_html(self.name)}</b>"
+        """Карточка: только заполненные колонки, между полями — пустая строка."""
+        return note_card_text(self.headers, self.note.values) or (
+            f"<b>📝 {escape_html(self.name)}</b>"
+        )
 
 
 # --- Утилиты ---
@@ -311,8 +312,9 @@ async def cb_source_notes(callback: types.CallbackQuery, state: FSMContext) -> N
     if repo is None:
         return
     try:
+        await _remember_source_list(state, repo)
         notes = await asyncio.to_thread(repo.list_by_source, source)
-        await _send_notes_list(callback, repo, source, notes)
+        await _send_notes_list(callback, repo, source, notes, state)
     except Exception as e:
         await send_error_message(callback, e)
 
@@ -328,6 +330,7 @@ async def _send_notes_list(
     repo: NoteRepository,
     source: str,
     notes: list[Note],
+    state: FSMContext | None = None,
 ) -> None:
     if not notes:
         await show_main_menu(
@@ -343,7 +346,10 @@ async def _send_notes_list(
     ]
     header = buttons.NOTES_PROMPT.format(source=escape_html(source), count=len(notes))
     text = header + "\n\n" + "\n".join(lines)
-    markup = keyboards.notes([note.note_id for note in notes], source)
+    source_index = await _index_of_source(source, state) if state else None
+    markup = keyboards.notes(
+        [note.note_id for note in notes], source, source_index=source_index
+    )
     await send_parts(event, text, markup)
 
 
@@ -581,7 +587,7 @@ async def cb_note_delete(callback: types.CallbackQuery, state: FSMContext) -> No
     await status_message(callback, buttons.NOTE_DELETED)
     if source:
         notes = await asyncio.to_thread(repo.list_by_source, source)
-        await _send_notes_list(callback, repo, source, notes)
+        await _send_notes_list(callback, repo, source, notes, state)
     else:
         await send_main_menu(callback)
 
@@ -612,10 +618,7 @@ async def show_sources_manage(
     if state is not None:
         await state.clear()
         if counts:
-            await state.update_data(
-                source_list=[source for source, _ in counts],
-                source_counts=[count for _, count in counts],
-            )
+            await _remember_source_list(state, repo, counts)
     if not counts:
         await show_main_menu(event, buttons.NO_SOURCES, keyboards.back_to_main())
         return
@@ -639,6 +642,35 @@ async def _saved_source(
         return None
     count = int(counts[index]) if index < len(counts) else 0
     return str(sources[index]), count
+
+
+async def _remember_source_list(
+    state: FSMContext,
+    repo: NoteRepository,
+    counts: list[tuple[str, int]] | None = None,
+) -> None:
+    """Сохраняет упорядоченный список источников для кнопок-номеров."""
+    if counts is None:
+        try:
+            counts = await asyncio.to_thread(repo.list_sources_with_counts)
+        except Exception as e:
+            logger.warning("Could not remember source list: %s", e)
+            return
+    await state.update_data(
+        source_list=[source for source, _ in counts],
+        source_counts=[count for _, count in counts],
+    )
+
+
+async def _index_of_source(source: str, state: FSMContext) -> int | None:
+    """Индекс источника в сохранённом списке (для кнопок списка заметок)."""
+    data = await state.get_data()
+    sources = [str(item) for item in data.get("source_list") or []]
+    wanted = source.strip().lower()
+    for index, saved in enumerate(sources):
+        if saved.strip().lower() == wanted:
+            return index
+    return None
 
 
 @router.callback_query(F.data == Cb.MENU_SOURCES)
@@ -684,7 +716,7 @@ async def cb_source_show_notes(
         return
     try:
         notes = await asyncio.to_thread(repo.list_by_source, source)
-        await _send_notes_list(callback, repo, source, notes)
+        await _send_notes_list(callback, repo, source, notes, state)
     except Exception as e:
         await send_error_message(callback, e)
 
@@ -748,6 +780,10 @@ async def got_renamed_source(message: types.Message, state: FSMContext) -> None:
         return
     await status_message(message, buttons.SOURCE_RENAMED.format(count=updated))
     await show_sources_manage(message, state)
+    if new_source:
+        # Возврат к списку заметок переименованного источника.
+        notes = await asyncio.to_thread(repo.list_by_source, new_source)
+        await _send_notes_list(message, repo, new_source, notes, state)
 
 
 @router.callback_query(F.data.startswith(f"{Cb.SRC_DEL}:"))

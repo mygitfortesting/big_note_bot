@@ -70,7 +70,10 @@ class Cb:
     COL_ADD = "col_add"
     COL_DEL = "col_del"
     COL_RENAME = "col_rename"
-    COL_MOVE = "col_move"
+    #: Открыть меню колонки по её номеру в списке (0-based).
+    COL_VIEW = "col_view"
+    #: «🔢 Change order»: ввод нового порядка колонок цифрами.
+    COL_REORDER = "col_reorder"
 
     _SEP = ":"
 
@@ -198,6 +201,11 @@ class Cb:
     # --- Колонки ---
 
     @classmethod
+    def col_view(cls, position: int) -> str:
+        """Меню колонки с номером ``position`` в списке (0-based)."""
+        return cls._join(cls.COL_VIEW, position)
+
+    @classmethod
     def col_del(cls, col_index: int) -> str:
         """Удалить пользовательскую колонку."""
         return cls._join(cls.COL_DEL, col_index)
@@ -208,22 +216,9 @@ class Cb:
         return cls._join(cls.COL_RENAME, col_index)
 
     @classmethod
-    def col_move(cls, col_index: int, direction: str) -> str:
-        """Сдвинуть колонку: direction = "left" | "right"."""
-        return cls._join(cls.COL_MOVE, col_index, direction)
-
-    @classmethod
     def parse_col(cls, data: str, prefix: str) -> int | None:
         """Номер колонки из callback ``prefix:<col>``."""
         parts = cls._split(data, prefix)
         if not parts or not parts[0].isdigit():
             return None
         return int(parts[0])
-
-    @classmethod
-    def parse_col_move(cls, data: str) -> tuple[int, str] | None:
-        """Разбирает ``col_move:<col>:<direction>``."""
-        parts = cls._split(data, cls.COL_MOVE)
-        if not parts or len(parts) < 2 or not parts[0].isdigit():
-            return None
-        return int(parts[0]), parts[1]

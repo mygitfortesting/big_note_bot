@@ -80,8 +80,8 @@ def note_card_lines(
     лишь его релевантные поля. Служебные ``ID`` и ``SCREEN`` не выводятся
     (ID нужен для кнопок, а скриншот отправляется отдельным фото).
 
-    Возвращает список строк с HTML-разметкой; хендлер склеивает их через
-    перевод строки и отправляет одним сообщением.
+    Возвращает список блоков с HTML-разметкой; хендлер склеивает их через
+    пустую строку (``"\n\n"``), чтобы поля карточки не слипались.
     """
     lines: list[str] = []
     for index, header in enumerate(headers):
@@ -96,3 +96,16 @@ def note_card_lines(
     if title:
         lines.insert(0, f"<b>{escape_html(title)}</b>")
     return lines
+
+
+#: Разделитель блоков карточки: между заполненными полями — пустая строка.
+CARD_BLOCK_SEPARATOR = "\n\n"
+
+
+def note_card_text(
+    headers: Sequence[str],
+    values: Sequence[str],
+    title: str | None = None,
+) -> str:
+    """Готовая карточка заметки: блоки разделены пустой строкой."""
+    return CARD_BLOCK_SEPARATOR.join(note_card_lines(headers, values, title))

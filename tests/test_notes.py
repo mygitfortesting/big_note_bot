@@ -95,6 +95,21 @@ def test_card_shows_custom_columns() -> None:
     assert COMMENT_HEADER not in text
 
 
+def test_card_fields_separated_by_blank_line() -> None:
+    """Финальный текст карточки разделяет поля пустой строкой."""
+    ctx = NoteContext(
+        note=Note(2, ["id1", "Blog", "Post", "Desc", "", "", "Nice"]),
+        headers=list(NOTES_HEADERS),
+        source="Blog",
+    )
+
+    blocks = ctx.card_text().split("\n\n")
+
+    assert len(blocks) == 4
+    assert blocks[0].startswith("<b>SOURCE:</b>")
+    assert "\n" not in ctx.card_text().replace("\n\n", "")
+
+
 def test_note_context_editable_columns_exclude_id_and_screen() -> None:
     ctx = NoteContext(
         note=Note(2, ["id1", "Blog", "Post", "", "", "", ""]),
@@ -463,6 +478,40 @@ def test_notes_list_is_numbered_with_code_names(use_repo) -> None:
     assert Cb.note_view("a1", "Blog") in datas
     assert Cb.note_view("b2", "Blog") in datas
     assert not any(text.startswith("📝") for text in texts)
+    assert buttons.ADD_NOTE_ROW in texts
+    assert buttons.EDIT_SOURCE in texts
+
+
+def test_notes_list_add_note_button_starts_name_prompt(use_repo) -> None:
+    """«➕ Add Note» из списка заметок сразу просит NAME для этого источника."""
+    repo, _ = repo_for([note_row("a1", "Blog", "FlexiTech")])
+    use_repo(repo)
+    state = FakeState()
+
+    asyncio.run(notes_handler.cb_source_notes(_callback(Cb.src_notes("Blog")), state))
+    add_callback = _callback(Cb.src_new_note(0))
+    asyncio.run(notes_handler.cb_source_new_note(add_callback, state))
+
+    assert state.state == NoteStates.wait_name
+    assert state.data["source"] == "Blog"
+    prompt = add_callback.message.sent[-1]
+    assert "Source: <b>Blog</b>" in prompt["text"]
+
+
+def test_notes_list_edit_source_button_starts_rename(use_repo) -> None:
+    """«✏️ Edit Source» из списка заметок запускает переименование."""
+    repo, _ = repo_for([note_row("a1", "Blog", "FlexiTech")])
+    use_repo(repo)
+    state = FakeState()
+
+    asyncio.run(notes_handler.cb_source_notes(_callback(Cb.src_notes("Blog")), state))
+    edit_callback = _callback(Cb.src_rename(0))
+    asyncio.run(notes_handler.cb_source_rename(edit_callback, state))
+
+    assert state.state == NoteStates.wait_source_name
+    assert state.data["source"] == "Blog"
+    prompt = edit_callback.message.sent[-1]
+    assert "Rename source" in prompt["text"]
 
 
 def test_search_by_name_opens_single_card(use_repo) -> None:
@@ -582,10 +631,12 @@ def test_sources_menu_rename_flow(use_repo) -> None:
     message = FakeMessage("Podcast", user_id=1)
     asyncio.run(notes_handler.got_renamed_source(message, state))
 
-    assert "Updated notes: <b>2</b>" in message.sent[-2]["text"]
+    assert any("Updated notes: <b>2</b>" in item["text"] for item in message.sent)
     data = rows_by_header(sheet)
     assert {row[SOURCE_HEADER] for row in data} == {"Podcast"}
-    assert "1. Podcast (2)" in message.sent[-1]["text"]
+    # После переименования бот открывает заметки переименованного источника:
+    # последнее сообщение — заголовок списка, а не «1. Podcast (2)».
+    assert any("<b>Podcast</b> — 2 note(s):" in item["text"] for item in message.sent)
     assert state.state is None
 
 

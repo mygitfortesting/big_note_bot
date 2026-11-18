@@ -23,12 +23,13 @@ DELETE_NOTE = "🗑 Delete note"
 DELETE_COLUMN = "🗑 Delete column"
 RENAME_COLUMN = "✏️ Rename column"
 ADD_COLUMN = "➕ Add column"
-MOVE_LEFT = "⬅️"
-MOVE_RIGHT = "➡️"
 RENAME_SOURCE = "✏️ Rename"
 DELETE_SOURCE = "🗑 Delete"
 CONFIRM_DELETE = "✅ Yes, delete"
 SHOW_NOTES = "📂 Show notes"
+#: Кнопка в списке заметок источника — ярлык именно этого экрана.
+ADD_NOTE_ROW = "➕ Add Note"
+EDIT_SOURCE = "✏️ Edit Source"
 
 # --- Тексты ---
 TABLE_LINK_PROMPT = (
@@ -52,7 +53,7 @@ NEW_SOURCE_PROMPT = (
 )
 
 NOTE_NAME_PROMPT = (
-    "📝 <b>New note</b>\n\nSource: <b>{source}</b>\nWrite the note <b>NAME</b>:"
+    "📝 <b>New note</b>\n\nSource: <b>{source}</b>\nWrite the new note <b>NAME</b>:"
 )
 
 EDIT_FIELD_PROMPT = (
@@ -102,6 +103,20 @@ COLUMNS_PROMPT = (
 )
 COLUMN_ADD_PROMPT = "➕ <b>New column</b>\n\nWrite the column name:"
 COLUMN_RENAME_PROMPT = "✏️ <b>Rename column</b> <b>{field}</b>\n\nSend the new name:"
+COLUMN_VIEW_PROMPT = "📋 <b>Column: {field}</b>\n\nChoose an action:"
+#: Короткая подпись о закреплённых колонках под списком пользовательских.
+COLUMNS_FIXED_HINT = "<b>Fixed:</b> {leading} → {comment}"
+CHANGE_ORDER = "🔢 Change order"
+COLUMN_ORDER_PROMPT = (
+    "🔢 <b>Change column order</b>\n\n"
+    "Send numbers separated by spaces (e.g. <code>2 1 3</code>).\n"
+    "<b>ID</b>, <b>SOURCE</b>, <b>NAME</b> stay first, <b>COMMENT</b> stays last."
+)
+COLUMN_ORDER_BAD_INPUT = (
+    "⚠️ Send each number from {low} to {high} exactly once, "
+    "separated by spaces (e.g. <code>{example}</code>)."
+)
+COLUMN_ORDER_SAVED = "✅ Column order updated."
 
 HELP_TEXT = (
     "❓ <b>How to use the bot</b>\n"

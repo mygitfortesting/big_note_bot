@@ -25,7 +25,6 @@ from services.sheets import (
     NAME_HEADER,
     SOURCE_HEADER,
     ColumnService,
-    comment_column_index,
 )
 from services.telegram_io import (
     ack_callback,
@@ -50,6 +49,7 @@ class ColumnStates(StatesGroup):
 
     wait_new_name = State()  # имя новой колонки
     wait_rename = State()  # новое имя существующей колонки
+    wait_order = State()  # новый порядок колонок цифрами
 
 
 def _service(
@@ -62,41 +62,118 @@ def _service(
     return ColumnService(user.id)
 
 
-def _columns(svc: ColumnService) -> list[tuple[int, str, bool]]:
+def _editable_columns(svc: ColumnService) -> list[tuple[int, str]]:
     """
-    (номер, имя, можно ли переименовать?) для шапки.
+    (номер в шапке, имя) только пользовательских колонок.
 
-    Меню показывает кнопку переименования только для тех колонок, где флаг
-    ``True``. Удаление отдельно закрыто в ``ColumnService``: ``SCREEN`` тоже
-    удалить нельзя, хотя имя у неё менять разрешено.
+    Закреплённые ``ID``/``SOURCE``/``NAME`` (в начале) и ``COMMENT``
+    (в конце) в список не попадают — они упоминаются в тексте подсказкой.
     """
-    result: list[tuple[int, str, bool]] = []
-    for index, header in enumerate(svc.headers(), start=1):
-        upper = header.strip().upper()
-        result.append((index, header, upper not in LOCKED_FOR_RENAME))
-    return result
+    headers = svc.headers()
+    return [
+        (col_index, headers[col_index - 1].strip())
+        for col_index in svc.middle_indexes(headers)
+        if headers[col_index - 1].strip()
+    ]
 
 
-async def show_columns(event: types.Message | types.CallbackQuery) -> None:
-    """Меню «📋 Columns»: список колонок и действия над ними."""
+def _columns_text(columns: list[tuple[int, str]]) -> str:
+    """Текст экрана: нумерованный список пользовательских колонок."""
+    hints = buttons.COLUMNS_FIXED_HINT.format(
+        leading=", ".join(LEADING_HEADERS), comment=COMMENT_HEADER
+    )
+    if not columns:
+        return f"{buttons.COLUMNS_PROMPT}\n\n{hints}"
+    lines = [
+        f"{position}. <b>{escape_html(name)}</b>"
+        for position, (_, name) in enumerate(columns, start=1)
+    ]
+    return f"{buttons.COLUMNS_PROMPT}\n\n{hints}\n\n" + "\n".join(lines)
+
+
+async def show_columns(
+    event: types.Message | types.CallbackQuery,
+    state: FSMContext | None = None,
+) -> None:
+    """Меню «📋 Columns»: нумерованный список и кнопки-номера."""
     svc = _service(event)
     if svc is None:
         return
     try:
-        columns = await asyncio.to_thread(_columns, svc)
+        columns = await asyncio.to_thread(_editable_columns, svc)
     except Exception as e:
         await send_error_message(event, e)
         return
-    hints = ", ".join(LEADING_HEADERS)
-    text = f"{buttons.COLUMNS_PROMPT}\n\n<b>Fixed:</b> {hints} → {COMMENT_HEADER}"
-    await show_main_menu(event, text, keyboards.columns_menu(columns))
+    if state is not None:
+        await state.update_data(
+            column_list=[col_index for col_index, _ in columns],
+            column_names=[name for _, name in columns],
+        )
+    text = _columns_text(columns)
+    await show_main_menu(event, text, keyboards.columns_menu(len(columns)))
+
+
+async def _column_at(
+    callback: types.CallbackQuery, state: FSMContext, position: int
+) -> tuple[int, str] | None:
+    """(номер в шапке, имя) колонки из сохранённого списка или None."""
+    data = await state.get_data()
+    indexes = data.get("column_list") or []
+    names = data.get("column_names") or []
+    if not 0 <= position < len(indexes):
+        await alert(callback, "⚠️ This column no longer exists.")
+        return None
+    name = str(names[position]) if position < len(names) else ""
+    return int(indexes[position]), name
 
 
 @router.callback_query(F.data == Cb.MENU_COLUMNS)
 async def cb_columns_menu(callback: types.CallbackQuery, state: FSMContext) -> None:
     await ack_callback(callback)
     await state.clear()
-    await show_columns(callback)
+    await show_columns(callback, state)
+
+
+# --- Меню выбранной колонки ---
+
+
+def _show_column_state(
+    svc: ColumnService, col_index: int, name: str
+) -> tuple[str, types.InlineKeyboardMarkup]:
+    """Текст и клавиатура меню одной колонки (без обращения к сети)."""
+    can_delete = col_index not in svc.protected_columns()
+    text = buttons.COLUMN_VIEW_PROMPT.format(field=escape_html(name))
+    markup = keyboards.column_actions(col_index, can_delete)
+    return text, markup
+
+
+async def _open_column(
+    callback: types.CallbackQuery, state: FSMContext, position: int
+) -> None:
+    """Открывает меню колонки по позиции в сохранённом списке."""
+    saved = await _column_at(callback, state, position)
+    if saved is None:
+        return
+    col_index, name = saved
+    svc = _service(callback)
+    if svc is None:
+        return
+    try:
+        text, markup = await asyncio.to_thread(_show_column_state, svc, col_index, name)
+    except Exception as e:
+        await send_error_message(callback, e)
+        return
+    await show_main_menu(callback, text, markup)
+
+
+@router.callback_query(F.data.startswith(f"{Cb.COL_VIEW}:"))
+async def cb_column_view(callback: types.CallbackQuery, state: FSMContext) -> None:
+    """Нажатие на номер: меню действий выбранной колонки."""
+    await ack_callback(callback)
+    position = Cb.parse_col(callback.data or "", Cb.COL_VIEW)
+    if position is None:
+        return
+    await _open_column(callback, state, position)
 
 
 # --- Добавление ---
@@ -122,7 +199,7 @@ async def got_new_column_name(message: types.Message, state: FSMContext) -> None
     try:
         await asyncio.to_thread(svc.add, name)
         await status_message(message, buttons.NOTE_SAVED)
-        await show_columns(message)
+        await show_columns(message, state)
     except Exception as e:
         await send_error_message(message, e)
 
@@ -148,7 +225,7 @@ async def cb_column_delete(callback: types.CallbackQuery, state: FSMContext) -> 
     except Exception as e:
         await send_error_message(callback, e)
         return
-    await show_columns(callback)
+    await show_columns(callback, state)
 
 
 # --- Переименование ---
@@ -194,7 +271,7 @@ async def got_renamed_column(message: types.Message, state: FSMContext) -> None:
     try:
         await asyncio.to_thread(svc.rename, col_index, name)
         await status_message(message, buttons.NOTE_SAVED)
-        await show_columns(message)
+        await show_columns(message, state)
     except ValueError as e:
         await status_message(message, f"🔒 {escape_html(str(e))}")
     except Exception as e:
@@ -204,63 +281,77 @@ async def got_renamed_column(message: types.Message, state: FSMContext) -> None:
 # --- Порядок ---
 
 
-@router.callback_query(F.data.startswith(f"{Cb.COL_MOVE}:"))
-async def cb_column_move(callback: types.CallbackQuery, state: FSMContext) -> None:
-    """
-    Сдвиг пользовательской колонки влево/вправо.
+def _ordered_text(svc: ColumnService) -> str:
+    """Нумерованный список изменяемых колонок для ввода порядка."""
+    columns = _editable_columns(svc)
+    lines = [
+        f"{position}. <b>{escape_html(name)}</b>"
+        for position, (_, name) in enumerate(columns, start=1)
+    ]
+    return buttons.COLUMN_ORDER_PROMPT + "\n\n" + "\n".join(lines)
 
-    Новый порядок формируется здесь и передаётся в ``ColumnService.reorder``,
-    который сам проверит инварианты: ID/SOURCE/NAME в начале, COMMENT в конце.
-    """
+
+@router.callback_query(F.data == Cb.COL_REORDER)
+async def cb_column_reorder(callback: types.CallbackQuery, state: FSMContext) -> None:
+    """«🔢 Change order»: просим новый порядок номеров через пробел."""
     await ack_callback(callback)
-    parsed = Cb.parse_col_move(callback.data or "")
-    if parsed is None:
-        return
-    col_index, direction = parsed
-    if direction not in ("left", "right"):
-        return
     svc = _service(callback)
     if svc is None:
         return
     try:
-        new_order = await asyncio.to_thread(_shifted_order, svc, col_index, direction)
-        await asyncio.to_thread(svc.reorder, new_order)
-    except ValueError as e:
-        await alert(callback, f"🔒 {escape_html(str(e))}")
-        return
+        text = await asyncio.to_thread(_ordered_text, svc)
+        total = len(await asyncio.to_thread(_editable_columns, svc))
     except Exception as e:
         await send_error_message(callback, e)
         return
-    await show_columns(callback)
+    if total < 2:
+        await alert(callback, "⚠️ There is nothing to reorder yet.")
+        return
+    await state.set_state(ColumnStates.wait_order)
+    await show_main_menu(callback, text, keyboards.columns_cancel())
 
 
-def _shifted_order(svc: ColumnService, col_index: int, direction: str) -> list[int]:
-    """
-    Порядок колонок после сдвига одной из них.
+def _parse_order(text: str, total: int) -> list[int] | None:
+    """Разбирает «2 1 3» в список номеров; None — ввод неверный."""
+    parts = (text or "").replace(",", " ").split()
+    if len(parts) != total or not all(part.isdigit() for part in parts):
+        return None
+    numbers = [int(part) for part in parts]
+    if sorted(numbers) != list(range(1, total + 1)):
+        return None
+    return numbers
 
-    Служебные колонки (первые три и последняя) не двигаются: попытка
-    сдвинуть их сразу отклоняется, чтобы не дёргать Sheets ради ошибки.
-    """
-    headers = svc.headers()
-    width = len(headers)
-    if not 1 <= col_index <= width:
-        raise ValueError("This column no longer exists.")
-    header = headers[col_index - 1].strip().upper()
-    first_free = len(LEADING_HEADERS) + 1
-    last_free = width
-    comment_col = comment_column_index(headers)
-    if comment_col is not None:
-        last_free = width - 1
-    if col_index < first_free or col_index > last_free:
-        header = headers[col_index - 1]
-        raise ValueError(f"{header} is a service column and stays.")
-    target = col_index - 1 if direction == "left" else col_index + 1
-    if target < first_free or target > last_free:
-        raise ValueError("This column is already at the edge.")
-    order = list(range(1, width + 1))
-    left, right = order[col_index - 1], order[target - 1]
-    order[col_index - 1], order[target - 1] = right, left
-    return order
+
+@router.message(ColumnStates.wait_order, F.text)
+async def got_column_order(message: types.Message, state: FSMContext) -> None:
+    """Новый порядок колонок цифрами через пробел."""
+    svc = _service(message)
+    if svc is None:
+        return
+    try:
+        total = len(await asyncio.to_thread(_editable_columns, svc))
+    except Exception as e:
+        await send_error_message(message, e)
+        return
+    order = _parse_order(message.text or "", total)
+    if order is None:
+        example = " ".join(str(number) for number in range(1, total + 1))
+        await status_message(
+            message,
+            buttons.COLUMN_ORDER_BAD_INPUT.format(low=1, high=total, example=example),
+        )
+        return
+    try:
+        await asyncio.to_thread(svc.reorder_middle, order)
+    except ValueError as e:
+        await status_message(message, f"⚠️ {escape_html(str(e))}")
+        return
+    except Exception as e:
+        await send_error_message(message, e)
+        return
+    await state.clear()
+    await status_message(message, buttons.COLUMN_ORDER_SAVED)
+    await show_columns(message, state)
 
 
 __all__ = [

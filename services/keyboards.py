@@ -193,18 +193,29 @@ def source_delete_confirm(index: int) -> InlineKeyboardMarkup:
 NOTE_NUMBER_ROW = 5
 
 
-def notes(note_ids: Sequence[str], source: str) -> InlineKeyboardMarkup:
+def notes(
+    note_ids: Sequence[str], source: str, source_index: int | None = None
+) -> InlineKeyboardMarkup:
     """
     Список заметок источника: кнопки-номера 1..N открывают карточку.
 
     В тексте кнопки — порядковый номер (как в пронумерованном списке),
-    в ``callback_data`` — настоящий ID заметки.
+    в ``callback_data`` — настоящий ID заметки. Если ``source_index``
+    известен, под номерами появляются «➕ Add Note» и «✏️ Edit Source» для
+    этого источника (в callback_data снова только номер — 64 байта хватит).
     """
     items = [
         _button(str(index), Cb.note_view(note_id, source))
         for index, note_id in enumerate(note_ids[:PAGE_SIZE], start=1)
     ]
     rows = _rows(items, NOTE_NUMBER_ROW)
+    if source_index is not None:
+        rows.append(
+            [
+                _button(buttons.ADD_NOTE_ROW, Cb.src_new_note(source_index)),
+                _button(buttons.EDIT_SOURCE, Cb.src_rename(source_index)),
+            ]
+        )
     rows.append([_button(buttons.BACK, Cb.SRC_LIST), to_main_row()])
     return _markup(rows)
 
@@ -256,36 +267,46 @@ def photo_cancel(note_id: str, source: str) -> InlineKeyboardMarkup:
 # --- Колонки ---
 
 
-def columns_menu(
-    columns: Sequence[tuple[int, str, bool]],
-) -> InlineKeyboardMarkup:
+def columns_menu(count: int) -> InlineKeyboardMarkup:
     """
-    Управление колонками.
+    «📋 Columns»: только кнопки-номера пользовательских колонок.
 
-    ``columns`` — (номер, имя, защищена?) в порядке шапки. Для пользовательских
-    колонок доступны переименование и удаление, для всех — сдвиг влево/вправо.
+    В ``callback_data`` уходит позиция в списке (0-based), а не имя:
+    имена колонок могут быть длинными, а лимит callback_data — 64 байта.
     """
-    rows: list[list[InlineKeyboardButton]] = [[_button(buttons.ADD_COLUMN, Cb.COL_ADD)]]
-    for col_index, name, protected in columns:
-        rows.append(
-            [
-                _button(buttons.MOVE_LEFT, Cb.col_move(col_index, "left")),
-                _button(name[:24] or "—", Cb.MENU_COLUMNS),
-                _button(buttons.MOVE_RIGHT, Cb.col_move(col_index, "right")),
-            ]
-        )
-        if not protected:
-            rows.append(
-                [
-                    _button(
-                        f"{buttons.RENAME_COLUMN} {name[:18]}",
-                        Cb.col_rename(col_index),
-                    ),
-                    _button(buttons.DELETE_COLUMN, Cb.col_del(col_index)),
-                ]
-            )
+    numbers = [
+        _button(str(position + 1), Cb.col_view(position))
+        for position in range(min(count, PAGE_SIZE))
+    ]
+    rows = _rows(numbers, NOTE_NUMBER_ROW)
+    rows.append([_button(buttons.ADD_COLUMN, Cb.COL_ADD)])
     rows.append([to_main_row()])
     return _markup(rows)
+
+
+def column_actions(col_index: int, can_delete: bool) -> InlineKeyboardMarkup:
+    """
+    Меню выбранной колонки.
+
+    Порядок колонок меняется списком номеров (``🔢 Change order``), стрелки
+    не нужны. Удаление скрыто для защищённых колонок (например, ``SCREEN``).
+    """
+    edit = [
+        _button(buttons.CHANGE_ORDER, Cb.COL_REORDER),
+        _button(buttons.RENAME_SOURCE, Cb.col_rename(col_index)),
+    ]
+    if can_delete:
+        edit.append(_button(buttons.DELETE_SOURCE, Cb.col_del(col_index)))
+    rows: list[list[InlineKeyboardButton]] = [
+        edit,
+        [_button(buttons.BACK, Cb.MENU_COLUMNS), to_main_row()],
+    ]
+    return _markup(rows)
+
+
+def columns_cancel() -> InlineKeyboardMarkup:
+    """Отмена ввода нового порядка колонок."""
+    return _markup([[cancel_row(), to_main_row()]])
 
 
 __all__ = [
@@ -293,6 +314,8 @@ __all__ = [
     "back_to_main",
     "cancel_row",
     "new_source_cancel",
+    "column_actions",
+    "columns_cancel",
     "columns_menu",
     "edit_fields_only",
     "main_menu",
