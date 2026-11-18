@@ -1,0 +1,8 @@
+.env
+credentials.json
+credentials*.json
+*secret*.json
+token*.json
+__pycache__/
+.pytest_cache/
+.idea/

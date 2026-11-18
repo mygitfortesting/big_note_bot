@@ -1,0 +1,28 @@
+# Конфигурация инструментов качества кода проекта big_note_bot.
+# Проверки запускаются через pre-commit (.pre-commit-config.yaml)
+# или вручную: `ruff check .`, `ruff format --check .`, `mypy .`
+
+[tool.ruff]
+line-length = 88                 # совместимо с black-стилем форматирования
+target-version = "py311"
+
+[tool.ruff.lint]
+# E/W — ошибки и предупреждения стиля pycodestyle,
+# F — pyflakes (неиспользуемые импорты и переменные),
+# I — сортировка импортов (замена isort, profile black).
+select = ["E", "F", "I", "W"]
+
+[tool.mypy]
+python_version = "3.11"
+ignore_missing_imports = true    # gspread/aiogram без заглушек типов
+check_untyped_defs = true        # типизируем даже тело функций без аннотаций
+exclude = "^tests/"              # юнит-тесты mypy не проверяет
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+# Интеграционные тесты помечаются @pytest.mark.integration и по умолчанию
+# не запускаются: `pytest tests -m "not integration" -q` — без сети.
+markers = ["integration: требует реального Google Sheets/Telegram"]
