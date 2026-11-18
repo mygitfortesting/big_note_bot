@@ -23,6 +23,7 @@ from config import (
 from handlers import columns_handler, notes_handler
 from services import buttons, keyboards
 from services.callback import Cb, Cmd
+from services.healthcheck import run_health_server
 from services.telegram_io import (
     ack_callback,
     hide_callback_message,
@@ -33,22 +34,6 @@ from services.telegram_io import (
 logger = logging.getLogger(__name__)
 
 router = Router(name="common")
-
-
-def _start_health_server() -> None:
-    """Health-check для хостинга (Render) — если модуль установлен.
-
-    ``services.healthcheck`` в репозитории может отсутствовать (например,
-    при локальном запуске) — тогда бот просто стартует без HTTP-эндпоинта,
-    а не падает с ImportError.
-    """
-    try:
-        from services.healthcheck import run_health_server
-    except ImportError:
-        logger.info("healthcheck module not found — starting without it")
-        return
-    threading.Thread(target=run_health_server, daemon=True).start()
-
 
 # --- Общие команды ---
 
@@ -160,7 +145,7 @@ async def main() -> None:
     except Exception as e:
         logger.error("Fatal: BOT_TOKEN is invalid or missing — bot not started: %s", e)
         raise
-    _start_health_server()
+    threading.Thread(target=run_health_server, daemon=True).start()
 
     register_routers()
     await set_bot_commands()
