@@ -15,13 +15,15 @@ def _message_of(target: Target) -> types.Message | None:
     """
     Сообщение, к которому относится target (сам Message или сообщение кнопки).
 
-    Проверка duck-typed: достаточно метода ``answer``. Настоящие ошибки
-    Telegram приходят из ``answer``/``answer_photo`` и попадают в
-    ``send_error_message`` — это правильнее, чем молча признать событие
-    «не сообщением» и не отправить ничего.
+    Проверка duck-typed: у кнопки достаточно атрибутов ``message`` и ``data``,
+    у сообщения — метода ``answer``. Никаких ``isinstance``: двойники в
+    тестах — обычные Python-классы, а не pydantic-модели aiogram.
+    Настоящие ошибки Telegram приходят из ``answer``/``answer_photo`` и
+    попадают в ``send_error_message`` — это правильнее, чем молча признать
+    событие «не сообщением» и не отправить ничего.
     """
-    if isinstance(target, types.CallbackQuery):
-        candidate: Any = target.message
+    if _looks_like_callback(target):
+        candidate: Any = getattr(target, "message", None)
     else:
         candidate = target
     if not callable(getattr(candidate, "answer", None)):
@@ -29,9 +31,20 @@ def _message_of(target: Target) -> types.Message | None:
     return cast(types.Message, candidate)
 
 
+def _looks_like_callback(target: Any) -> bool:
+    """Событие с атрибутами ``message`` и ``data`` (callback или двойник)."""
+    return hasattr(target, "message") and hasattr(target, "data")
+
+
 def require_from_user(target: Target) -> types.User | None:
-    """Пользователь события или None (анонимные админы групп без from_user)."""
-    return cast(types.User | None, getattr(target, "from_user", None))
+    """
+    Пользователь события или None (анонимные админы групп без from_user).
+
+    Только ``getattr``: работает и для настоящего Message/CallbackQuery,
+    и для тестовых двойников.
+    """
+    user = getattr(target, "from_user", None)
+    return cast(types.User, user) if user is not None else None
 
 
 def user_id_of(target: Target) -> int | None:
@@ -60,11 +73,12 @@ async def alert(
 
 async def hide_callback_message(callback: types.CallbackQuery) -> None:
     """Удаляет сообщение, под которым была нажата кнопка (если можно)."""
-    message = callback.message
-    if not isinstance(message, types.Message):
+    message = getattr(callback, "message", None)
+    delete = getattr(message, "delete", None)
+    if not callable(delete):
         return
     try:
-        await message.delete()
+        await delete()
     except Exception as e:
         # >48 часов или уже удалено — не критично для сценария
         logger.debug("Could not hide callback message: %s", e)

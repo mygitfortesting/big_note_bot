@@ -43,12 +43,19 @@ class Cb:
     SRC_LIST = "src_list"
     #: «📋 Columns» — управление колонками листа.
     MENU_COLUMNS = "menu_columns"
+    #: «🗂 Sources» — управление источниками (переименование/удаление).
+    MENU_SOURCES = "menu_sources"
 
     # --- Источники ---
     #: «➕ Add note»: выбор источника из списка или «Новый источник».
     NOTE_ADD = "note_add"
     #: «🗂 Add source» / «➕ New source»: ввод имени нового источника.
     SRC_ADD = "src_add"
+    #: Параметрические кнопки управления источниками (номер в списке).
+    SRC_MANAGE = "src_manage"
+    SRC_RENAME = "src_rename"
+    SRC_DEL = "src_del"
+    SRC_DEL_CONFIRM = "src_del_confirm"
 
     # --- Кнопки с параметрами ---
     SRC_SELECT = "src_select"
@@ -98,6 +105,36 @@ class Cb:
         if not parts or not "".join(parts):
             return None
         return cls._SEP.join(parts)
+
+    # --- Управление источниками (номер в списке, а не имя) ---
+
+    @classmethod
+    def src_manage(cls, index: int) -> str:
+        """Открыть управление источником с номером ``index`` (0-based)."""
+        return cls._join(cls.SRC_MANAGE, index)
+
+    @classmethod
+    def src_rename(cls, index: int) -> str:
+        """Переименовать источник с номером ``index`` (0-based)."""
+        return cls._join(cls.SRC_RENAME, index)
+
+    @classmethod
+    def src_del(cls, index: int) -> str:
+        """Спросить подтверждение удаления источника ``index`` (0-based)."""
+        return cls._join(cls.SRC_DEL, index)
+
+    @classmethod
+    def src_del_confirm(cls, index: int) -> str:
+        """Подтверждённое удаление источника ``index`` (0-based)."""
+        return cls._join(cls.SRC_DEL_CONFIRM, index)
+
+    @classmethod
+    def parse_source_index(cls, data: str, prefix: str) -> int | None:
+        """Номер источника (0-based) из callback ``prefix:<index>``."""
+        parts = cls._split(data, prefix)
+        if not parts or not parts[0].isdigit():
+            return None
+        return int(parts[0])
 
     # --- Заметки ---
 

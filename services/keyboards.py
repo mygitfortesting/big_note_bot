@@ -57,6 +57,7 @@ def main_menu() -> InlineKeyboardMarkup:
                 _button(buttons.COLUMNS, Cb.MENU_COLUMNS),
                 _button(buttons.BY_SOURCE, Cb.SRC_LIST),
             ],
+            [_button(buttons.SOURCES, Cb.MENU_SOURCES)],
         ]
     )
 
@@ -73,6 +74,11 @@ def to_main_row() -> InlineKeyboardButton:
 
 def cancel_row() -> InlineKeyboardButton:
     return _button(buttons.CANCEL, Cb.CANCEL_INPUT)
+
+
+def new_source_cancel() -> InlineKeyboardMarkup:
+    """Экран ввода нового источника: отмена рядом с возвратом в меню."""
+    return _markup([[cancel_row(), to_main_row()]])
 
 
 def table_link(url: str) -> InlineKeyboardMarkup:
@@ -121,6 +127,50 @@ def sources_with_counts(
         for source, count in counts[:PAGE_SIZE]
     ]
     return _markup([*_rows(items, 2), [cancel_row(), to_main_row()]])
+
+
+# --- Управление источниками ---
+
+#: Сколько кнопок-номеров в одном ряду списка источников.
+SOURCE_NUMBER_ROW = 5
+
+
+def sources_manage(count: int) -> InlineKeyboardMarkup:
+    """
+    «🗂 Sources»: кнопки-номера источников + «➕ Add source» + меню.
+
+    В ``callback_data`` уходит только номер: имя источника может не влезть
+    в 64 байта callback_data, а сам список лежит в FSMContext.
+    """
+    numbers = [
+        _button(str(index + 1), Cb.src_manage(index))
+        for index in range(min(count, PAGE_SIZE))
+    ]
+    rows = _rows(numbers, SOURCE_NUMBER_ROW)
+    rows.append([_button(buttons.NEW_SOURCE, Cb.SRC_ADD)])
+    rows.append([to_main_row()])
+    return _markup(rows)
+
+
+def source_actions(index: int) -> InlineKeyboardMarkup:
+    """Действия над источником: переименовать или удалить."""
+    return _markup(
+        [
+            [_button(buttons.RENAME_SOURCE, Cb.src_rename(index))],
+            [_button(buttons.DELETE_SOURCE, Cb.src_del(index))],
+            [_button(buttons.BACK, Cb.MENU_SOURCES), to_main_row()],
+        ]
+    )
+
+
+def source_delete_confirm(index: int) -> InlineKeyboardMarkup:
+    """Подтверждение удаления источника: удалить или отменить."""
+    return _markup(
+        [
+            [_button(buttons.CONFIRM_DELETE, Cb.src_del_confirm(index))],
+            [_button(buttons.CANCEL, Cb.src_manage(index))],
+        ]
+    )
 
 
 # --- Заметки ---
@@ -218,6 +268,7 @@ __all__ = [
     "PAGE_SIZE",
     "back_to_main",
     "cancel_row",
+    "new_source_cancel",
     "columns_menu",
     "edit_fields_only",
     "main_menu",
@@ -225,7 +276,10 @@ __all__ = [
     "note_delete_confirm",
     "notes",
     "photo_cancel",
+    "source_actions",
+    "source_delete_confirm",
     "sources",
+    "sources_manage",
     "sources_with_counts",
     "table_link",
     "to_main_row",

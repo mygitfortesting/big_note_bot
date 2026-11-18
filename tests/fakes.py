@@ -218,3 +218,29 @@ class FakeMessage:
 
     async def delete(self) -> None:  # pragma: no cover - редко используется
         return None
+
+
+class FakeCallback:
+    """
+    CallbackQuery без наследства от pydantic-модели aiogram.
+
+    Наследование от ``types.CallbackQuery`` заставляет pydantic валидировать
+    поля (``id``, ``from``, ``chat_instance``, ``data``) и запрещает писать
+    в замороженные поля — двойник падал бы в ``__init__``. Здесь обычный
+    Python-класс с теми же атрибутами; ``telegram_io`` читает их через
+    ``getattr``, поэтому утиная типизация срабатывает.
+    """
+
+    def __init__(self, data: str, user_id: int = 1) -> None:
+        self.id = f"cb-{data}-{user_id}"
+        self.data = data
+        self.from_user = FakeUser(user_id)
+        self.chat_instance = f"chat-{user_id}"
+        self.message = FakeMessage("", user_id)
+        self.answers: list[dict[str, Any]] = []
+
+    async def answer(
+        self, text: str | None = None, show_alert: bool = False, **kw: Any
+    ) -> None:
+        """Гасит «часики»: ответы копятся в ``answers`` для проверок."""
+        self.answers.append({"text": text, "show_alert": show_alert, **kw})

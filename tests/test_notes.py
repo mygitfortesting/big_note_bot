@@ -21,7 +21,7 @@ from services.sheets import (
 )
 from services.text_utils import note_card_lines, split_messages
 from tests.factories import note_row, repo_for, rows_by_header
-from tests.fakes import FakeMessage, FakeState, FakeUser
+from tests.fakes import FakeCallback, FakeMessage, FakeState, FakeUser
 
 
 @pytest.fixture()
@@ -202,6 +202,73 @@ def test_add_note_without_sources_asks_for_new_source(use_repo) -> None:
     assert state.state == NoteStates.wait_source
 
 
+def test_add_source_lists_existing_sources_and_cancel(use_repo) -> None:
+    """«➕ Add source»: список существующих источников + кнопка «✖️ Cancel»."""
+    repo, _ = repo_for(
+        [
+            note_row("1", "Telegram", "a"),
+            note_row("2", "Instagram", "b"),
+            note_row("3", "Instagram", "c"),
+        ]
+    )
+    use_repo(repo)
+    message = FakeMessage("", user_id=1)
+    message.from_user = FakeUser(1)
+    state = FakeState()
+
+    asyncio.run(notes_handler.ask_new_source(message, state))
+
+    assert message.sent, f"Bot sent nothing: {message.sent}"
+    sent = message.sent[-1]
+    text = sent["text"]
+    assert "Existing:" in text
+    assert "<code>Instagram</code>, <code>Telegram</code>" in text
+    assert text.count("<code>Instagram</code>") == 1  # источники уникальны
+
+    keyboard = sent["reply_markup"].inline_keyboard
+    datas = [button.callback_data for row in keyboard for button in row]
+    assert Cb.CANCEL_INPUT in datas
+    assert Cb.TO_MAIN in datas
+    cancel = [button for row in keyboard for button in row]
+    assert any(
+        button.text == buttons.CANCEL and button.callback_data == Cb.CANCEL_INPUT
+        for button in cancel
+    )
+    assert state.state == NoteStates.wait_source
+
+
+def test_add_source_escapes_existing_sources(use_repo) -> None:
+    """Имя источника не может подменить разметку сообщения."""
+    repo, _ = repo_for([note_row("1", "<b>Shop</b>", "a")])
+    use_repo(repo)
+    message = FakeMessage("", user_id=1)
+    message.from_user = FakeUser(1)
+
+    asyncio.run(notes_handler.ask_new_source(message, FakeState()))
+
+    assert message.sent, f"Bot sent nothing: {message.sent}"
+    text = message.sent[-1]["text"]
+    assert "<code>&lt;b&gt;Shop&lt;/b&gt;</code>" in text
+    assert "<b>Shop</b>" not in text
+
+
+def test_add_source_without_sources_has_no_existing_line(use_repo) -> None:
+    """Нет источников — стандартный промпт без строки «Existing:»."""
+    repo, _ = repo_for([])
+    use_repo(repo)
+    message = FakeMessage("", user_id=1)
+    message.from_user = FakeUser(1)
+
+    asyncio.run(notes_handler.ask_new_source(message, FakeState()))
+
+    assert message.sent, f"Bot sent nothing: {message.sent}"
+    sent = message.sent[-1]
+    assert sent["text"] == buttons.NEW_SOURCE_PROMPT
+    keyboard = sent["reply_markup"].inline_keyboard
+    datas = [button.callback_data for row in keyboard for button in row]
+    assert Cb.CANCEL_INPUT in datas
+
+
 def test_note_card_has_only_four_buttons() -> None:
     """В карточке нет кнопок правки отдельных полей — только 4 кнопки."""
     markup = keyboards.note_card("id1", "Blog")
@@ -294,21 +361,127 @@ def test_edit_field_accepts_any_column_except_id_and_screen() -> None:
 # --- Вспомогательные объекты ---
 
 
-class _FakeCallback:
-    """CallbackQuery, достаточный для сценариев навигации."""
-
-    def __init__(self, data: str, user_id: int = 1) -> None:
-        self.data = data
-        self.from_user = FakeUser(user_id)
-        self.answers: list[dict[str, Any]] = []
-        self.message = FakeMessage("", user_id)
-
-    async def answer(self, text: str | None = None, **kw: Any) -> None:
-        self.answers.append({"text": text, **kw})
-
-
 def _callback(data: str, user_id: int = 1) -> Any:
-    return _FakeCallback(data, user_id)
+    """CallbackQuery-двойник из ``tests.fakes`` (без pydantic-валидации)."""
+    return FakeCallback(data, user_id)
+
+
+def test_add_source_button_lists_existing_sources(use_repo) -> None:
+    """Кнопка «➕ New source» ведёт на экран со списком существующих."""
+    repo, _ = repo_for([note_row("1", "Blog", "a")])
+    use_repo(repo)
+    callback = _callback(Cb.SRC_ADD)
+    state = FakeState()
+
+    asyncio.run(notes_handler.cb_add_source(callback, state))
+
+    assert callback.message.sent, f"Bot sent nothing: {callback.message.sent}"
+    sent = callback.message.sent[-1]
+    assert "Existing: <code>Blog</code>" in sent["text"]
+    keyboard = sent["reply_markup"].inline_keyboard
+    buttons_flat = [button for row in keyboard for button in row]
+    datas = [button.callback_data for button in buttons_flat]
+    assert Cb.CANCEL_INPUT in datas
+    assert any(
+        button.text == buttons.CANCEL and button.callback_data == Cb.CANCEL_INPUT
+        for button in buttons_flat
+    )
+    assert state.state == NoteStates.wait_source
+
+
+def test_sources_menu_numbers_and_opens_actions(use_repo) -> None:
+    """«🗂 Sources» → список по номерам → выбор номера → действия."""
+    repo, _ = repo_for([note_row("1", "Blog", "a"), note_row("2", "YouTube", "b")])
+    use_repo(repo)
+    state = FakeState()
+
+    open_callback = _callback(Cb.MENU_SOURCES)
+    asyncio.run(notes_handler.cb_manage_sources(open_callback, state))
+
+    sent = open_callback.message.sent[-1]
+    assert "1. Blog (1)" in sent["text"]
+    assert "2. YouTube (1)" in sent["text"]
+    numbers = [
+        button.text for row in sent["reply_markup"].inline_keyboard for button in row
+    ]
+    assert "1" in numbers
+    assert "2" in numbers
+    assert state.data["source_list"] == ["Blog", "YouTube"]
+
+    manage_callback = _callback(Cb.src_manage(0))
+    asyncio.run(notes_handler.cb_source_manage(manage_callback, state))
+
+    manage_markup = manage_callback.message.sent[-1]["reply_markup"]
+    datas = [
+        button.callback_data for row in manage_markup.inline_keyboard for button in row
+    ]
+    assert Cb.src_rename(0) in datas
+    assert Cb.src_del(0) in datas
+
+
+def test_sources_menu_rename_flow(use_repo) -> None:
+    """Переименование источника: Rename → новое имя → отчёт и возврат."""
+    repo, sheet = repo_for([note_row("1", "Blog", "a"), note_row("2", "Blog", "b")])
+    use_repo(repo)
+    state = FakeState()
+
+    asyncio.run(notes_handler.cb_manage_sources(_callback(Cb.MENU_SOURCES), state))
+    rename_callback = _callback(Cb.src_rename(0))
+    asyncio.run(notes_handler.cb_source_rename(rename_callback, state))
+
+    assert state.state == NoteStates.wait_source_name
+    assert state.data["source"] == "Blog"
+    prompt = rename_callback.message.sent[-1]
+    assert "Blog" in prompt["text"]
+    cancel_datas = [
+        button.callback_data
+        for row in prompt["reply_markup"].inline_keyboard
+        for button in row
+    ]
+    assert Cb.CANCEL_INPUT in cancel_datas
+
+    message = FakeMessage("Podcast", user_id=1)
+    asyncio.run(notes_handler.got_renamed_source(message, state))
+
+    assert "Updated notes: <b>2</b>" in message.sent[-2]["text"]
+    data = rows_by_header(sheet)
+    assert {row[SOURCE_HEADER] for row in data} == {"Podcast"}
+    assert "1. Podcast (2)" in message.sent[-1]["text"]
+    assert state.state is None
+
+
+def test_sources_menu_delete_flow(use_repo) -> None:
+    """Удаление источника: Delete → подтверждение → Yes, delete."""
+    repo, sheet = repo_for(
+        [
+            note_row("1", "Blog", "a"),
+            note_row("2", "Blog", "b"),
+            note_row("3", "X", "c"),
+        ]
+    )
+    use_repo(repo)
+    state = FakeState()
+
+    asyncio.run(notes_handler.cb_manage_sources(_callback(Cb.MENU_SOURCES), state))
+    delete_callback = _callback(Cb.src_del(0))
+    asyncio.run(notes_handler.cb_source_delete(delete_callback, state))
+
+    confirm = delete_callback.message.sent[-1]
+    assert "Notes that will be deleted: <b>2</b>" in confirm["text"]
+    datas = [
+        button.callback_data
+        for row in confirm["reply_markup"].inline_keyboard
+        for button in row
+    ]
+    assert Cb.src_del_confirm(0) in datas
+
+    confirm_callback = _callback(Cb.src_del_confirm(0))
+    asyncio.run(notes_handler.cb_source_delete_confirm(confirm_callback, state))
+
+    assert "Removed notes: <b>2</b>" in confirm_callback.message.sent[-2]["text"]
+    data = rows_by_header(sheet)
+    assert [row[SOURCE_HEADER] for row in data] == ["X"]
+    assert state.data["source_list"] == ["X"]
 
 
 def test_split_messages_respects_limit() -> None:

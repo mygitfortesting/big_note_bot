@@ -10,6 +10,7 @@ OPEN_TABLE = "🪎 Open Table"
 # --- Кнопки главного меню ---
 BY_SOURCE = "📂 Notes by source"
 COLUMNS = "📊 Columns"
+SOURCES = "🗂 Sources"
 
 # --- Кнопки навигации и карточки ---
 BACK = "⬅️ Back"
@@ -24,6 +25,9 @@ RENAME_COLUMN = "✏️ Rename column"
 ADD_COLUMN = "➕ Add column"
 MOVE_LEFT = "⬅️"
 MOVE_RIGHT = "➡️"
+RENAME_SOURCE = "✏️ Rename"
+DELETE_SOURCE = "🗑 Delete"
+CONFIRM_DELETE = "✅ Yes, delete"
 
 # --- Тексты ---
 TABLE_LINK_PROMPT = (
@@ -46,6 +50,13 @@ NEW_SOURCE_PROMPT = (
     "🗂 <b>New source</b>\n\nWrite the <b>SOURCE</b> name (e.g. <i>Instagram</i>):"
 )
 
+NEW_SOURCE_EXISTING = "Existing: {sources}"
+
+NEW_SOURCE_PROMPT_WITH_EXISTING = (
+    "🗂 <b>New source</b>\n"
+    "{existing}\n\nWrite the <b>SOURCE</b> name (e.g. <i>Instagram</i>):"
+)
+
 NOTE_NAME_PROMPT = (
     "📝 <b>New note</b>\n\nSource: <b>{source}</b>\nWrite the note <b>NAME</b>:"
 )
@@ -62,6 +73,22 @@ PHOTO_PROMPT = (
 )
 
 SOURCES_PROMPT = "📂 <b>Notes by source</b>\n\nChoose a source:"
+
+SOURCES_MANAGE_PROMPT = (
+    "🗂 <b>Sources</b>\n\nTap a number to rename or delete that source:"
+)
+SOURCE_MANAGE_PROMPT = "🗂 <b>{source}</b>\n\nNotes: <b>{count}</b>\n\nChoose an action:"
+SOURCE_RENAME_PROMPT = (
+    "✏️ <b>Rename source</b> <b>{source}</b>\n\n"
+    "Write the new source name (notes: <b>{count}</b>):"
+)
+SOURCE_RENAMED = "✅ Source renamed. Updated notes: <b>{count}</b>."
+SOURCE_DELETE_CONFIRM = (
+    "🗑 <b>Delete source</b> <b>{source}</b>?\n\n"
+    "Notes that will be deleted: <b>{count}</b>. This cannot be undone."
+)
+SOURCE_DELETED = "🗑 Source deleted. Removed notes: <b>{count}</b>."
+SOURCE_LOST = "⚠️ This source no longer exists. Open 🗂 Sources again."
 NO_SOURCES = (
     "📂 <b>Notes by source</b>\n\nNo sources yet. Add one with <b>➕ Add note</b>."
 )

@@ -122,6 +122,78 @@ def test_list_by_source_is_case_insensitive() -> None:
     assert len(repo.list_by_source("INSTAGRAM")) == 1
 
 
+def test_list_sources_with_counts() -> None:
+    """(источник, количество) по алфавиту, регистр не плодит дубликаты."""
+    rows = [
+        note_row("1", "YouTube", "b"),
+        note_row("2", "blog", "a"),
+        note_row("3", "Blog", "c"),
+        note_row("4", "", "no source"),
+    ]
+    repo, _ = repo_for(rows)
+
+    assert repo.list_sources_with_counts() == [("blog", 2), ("YouTube", 1)]
+
+
+# --- Переименование и удаление источника ---
+
+
+def test_rename_source_changes_all_rows_and_resorts() -> None:
+    """rename_source меняет SOURCE во всех строках и пересортировывает лист."""
+    rows = [
+        note_row("1", "Blog", "Zebra"),
+        note_row("2", "blog", "apple"),
+        note_row("3", "YouTube", "a"),
+    ]
+    repo, sheet = repo_for(rows)
+
+    updated = repo.rename_source("BLOG", "Podcast")
+
+    assert updated == 2
+    data = rows_by_header(sheet)
+    assert [row[SOURCE_HEADER] for row in data] == ["Podcast", "Podcast", "YouTube"]
+    assert [row[NAME_HEADER] for row in data] == ["apple", "Zebra", "a"]
+    assert repo.list_sources() == ["Podcast", "YouTube"]
+
+
+def test_rename_source_rejects_empty_name() -> None:
+    repo, _ = repo_for([note_row("1", "Blog", "a")])
+    with pytest.raises(ValueError):
+        repo.rename_source("Blog", "   ")
+
+
+def test_rename_source_unknown_returns_zero() -> None:
+    repo, sheet = repo_for([note_row("1", "Blog", "a")])
+
+    assert repo.rename_source("Nowhere", "Else") == 0
+    assert rows_by_header(sheet)[0][SOURCE_HEADER] == "Blog"
+
+
+def test_delete_source_removes_only_its_rows() -> None:
+    """delete_source удаляет все строки источника и не съезжает на чужие."""
+    rows = [
+        note_row("1", "Blog", "a"),
+        note_row("2", "YouTube", "b"),
+        note_row("3", "blog", "c"),
+        note_row("4", "YouTube", "d"),
+    ]
+    repo, sheet = repo_for(rows)
+
+    deleted = repo.delete_source("BLOG")
+
+    assert deleted == 2
+    data = rows_by_header(sheet)
+    assert [row[ID_HEADER] for row in data] == ["2", "4"]
+    assert repo.list_sources() == ["YouTube"]
+
+
+def test_delete_source_unknown_returns_zero() -> None:
+    repo, sheet = repo_for([note_row("1", "Blog", "a")])
+
+    assert repo.delete_source("Nowhere") == 0
+    assert len(sheet.rows) == 2
+
+
 # --- Note ---
 
 

@@ -385,6 +385,22 @@ class NoteRepository(_SheetBound):
                 seen.setdefault(source.lower(), source)
         return [seen[key] for key in sorted(seen)]
 
+    def list_sources_with_counts(self) -> list[tuple[str, int]]:
+        """(источник, количество заметок) по алфавиту без учёта регистра."""
+        headers = self.headers()
+        if not headers:
+            return []
+        source_col = source_column_index(headers) - 1
+        seen: dict[str, tuple[str, int]] = {}
+        for row in self._all_values()[1:]:
+            source = cell(row, source_col).strip()
+            if not source:
+                continue
+            key = source.lower()
+            name, count = seen.get(key, (source, 0))
+            seen[key] = (name, count + 1)
+        return [seen[key] for key in sorted(seen)]
+
     def list_notes(self) -> list[Note]:
         """Все заметки листа (с ID и NAME), порядок — как в таблице."""
         values = self._all_values()
@@ -495,6 +511,60 @@ class NoteRepository(_SheetBound):
         if found is not None:
             self.sheet.delete_rows(found[0])
             invalidate_cache(self._user_id)
+
+    # --- источники ---
+
+    def _source_rows(self, source: str) -> list[int]:
+        """Номера строк (1-based, сверху вниз) с этим SOURCE."""
+        wanted = (source or "").strip().lower()
+        if not wanted:
+            return []
+        headers = self.headers()
+        if not headers:
+            return []
+        source_col = source_column_index(headers) - 1
+        return [
+            row_index
+            for row_index, row in enumerate(self._all_values()[1:], start=2)
+            if cell(row, source_col).strip().lower() == wanted
+        ]
+
+    def rename_source(self, old_source: str, new_source: str) -> int:
+        """
+        Переименовывает источник во ВСЕХ его заметках и возвращает их число.
+
+        Сравнение с ``old_source`` — без учёта регистра и лишних пробелов.
+        После записи лист пересортировывается (SOURCE -> NAME) и кэш
+        сбрасывается, поэтому новая группировка видна сразу.
+        """
+        name = (new_source or "").strip()
+        if not name:
+            raise ValueError("Source name must not be empty.")
+        row_indexes = self._source_rows(old_source)
+        if not row_indexes:
+            return 0
+        headers = self.headers()
+        source_col = source_column_index(headers)
+        for row_index in row_indexes:
+            self.sheet.update_cell(row_index, source_col, name)
+        invalidate_cache(self._user_id)
+        self.sort_notes()
+        return len(row_indexes)
+
+    def delete_source(self, source: str) -> int:
+        """
+        Удаляет все заметки источника и возвращает их число.
+
+        Строки удаляются снизу вверх: при удалении сверху сдвигаются индексы
+        ещё не удалённых строк, и чужие заметки уехали бы вместе с ними.
+        """
+        row_indexes = self._source_rows(source)
+        if not row_indexes:
+            return 0
+        for row_index in reversed(row_indexes):
+            self.sheet.delete_rows(row_index)
+        invalidate_cache(self._user_id)
+        return len(row_indexes)
 
     def sort_notes(self) -> None:
         """

@@ -56,6 +56,7 @@ class NoteStates(StatesGroup):
     wait_name = State()  # ввод названия заметки
     wait_value = State()  # ввод значения колонки
     wait_photo = State()  # ожидание фото для SCREEN
+    wait_source_name = State()  # новое имя существующего источника
 
 
 @dataclass(frozen=True)
@@ -185,10 +186,33 @@ async def ask_note_source(
 async def ask_new_source(
     event: types.Message | types.CallbackQuery, state: FSMContext | None = None
 ) -> None:
-    """Шаг 1 «🗂 Add source»: просим имя источника и ждём текст."""
+    """
+    Шаг 1 «🗂 Add source»: просим имя источника и ждём текст.
+
+    Если в таблице уже есть источники — показываем их списком, чтобы
+    пользователь не плодил дубликаты, и даём кнопку «✖️ Cancel».
+    """
     if state is not None:
         await state.set_state(NoteStates.wait_source)
-    await show_main_menu(event, buttons.NEW_SOURCE_PROMPT, keyboards.back_to_main())
+    repo = _repo(event)
+    if repo is None:
+        return
+    try:
+        sources = await asyncio.to_thread(repo.list_sources)
+    except Exception as e:
+        # Список только подсказка: без него экран всё равно должен открыться,
+        # иначе кнопка «✖️ Cancel» остаётся недоступной.
+        logger.warning("Could not list sources for /add_source: %s", e)
+        sources = []
+    text = buttons.NEW_SOURCE_PROMPT
+    if sources:
+        existing = ", ".join(
+            f"<code>{escape_html(source)}</code>" for source in sources
+        )
+        text = buttons.NEW_SOURCE_PROMPT_WITH_EXISTING.format(
+            existing=buttons.NEW_SOURCE_EXISTING.format(sources=existing)
+        )
+    await show_main_menu(event, text, keyboards.new_source_cancel())
 
 
 async def ask_note_name(
@@ -348,7 +372,8 @@ async def show_note(event: types.Message | types.CallbackQuery, note_id: str) ->
         return
     text = ctx.card_text()
     markup = keyboards.note_card(ctx.note_id, ctx.source)
-    message = event.message if isinstance(event, types.CallbackQuery) else event
+    # Утиная типизация: у кнопки есть message, у обычного сообщения — нет.
+    message = getattr(event, "message", None) or event
     if message is None:
         return
     if ctx.screen:
@@ -563,6 +588,176 @@ async def cb_note_delete(callback: types.CallbackQuery, state: FSMContext) -> No
         await send_main_menu(callback)
 
 
+# --- Управление источниками: список по номерам ---
+
+
+async def show_sources_manage(
+    event: types.Message | types.CallbackQuery,
+    state: FSMContext | None = None,
+) -> None:
+    """
+    «🗂 Sources»: пронумерованный список «1. Source (N)» и кнопки-номера.
+
+    Список вместе с количеством заметок сохраняется в FSMContext: в
+    callback_data уходит только номер, поэтому длина имён источников
+    и их количество не упираются в лимит 64 байта.
+    """
+    repo = _repo(event)
+    if repo is None:
+        return
+    try:
+        counts = await asyncio.to_thread(repo.list_sources_with_counts)
+    except Exception as e:
+        logger.exception("Could not list sources for /sources")
+        await send_error_message(event, e)
+        return
+    if state is not None:
+        await state.clear()
+        if counts:
+            await state.update_data(
+                source_list=[source for source, _ in counts],
+                source_counts=[count for _, count in counts],
+            )
+    if not counts:
+        await show_main_menu(event, buttons.NO_SOURCES, keyboards.back_to_main())
+        return
+    lines = [
+        f"{index}. {escape_html(source)} ({count})"
+        for index, (source, count) in enumerate(counts, start=1)
+    ]
+    text = buttons.SOURCES_MANAGE_PROMPT + "\n\n" + "\n".join(lines)
+    await send_parts(event, text, keyboards.sources_manage(len(counts)))
+
+
+async def _saved_source(
+    callback: types.CallbackQuery, state: FSMContext, index: int
+) -> tuple[str, int] | None:
+    """(источник, количество заметок) из сохранённого списка или None."""
+    data = await state.get_data()
+    sources = data.get("source_list") or []
+    counts = data.get("source_counts") or []
+    if not 0 <= index < len(sources):
+        await alert(callback, buttons.SOURCE_LOST)
+        return None
+    count = int(counts[index]) if index < len(counts) else 0
+    return str(sources[index]), count
+
+
+@router.callback_query(F.data == Cb.MENU_SOURCES)
+async def cb_manage_sources(callback: types.CallbackQuery, state: FSMContext) -> None:
+    """«🗂 Sources»: нумерованный список источников."""
+    await ack_callback(callback)
+    await show_sources_manage(callback, state)
+
+
+@router.callback_query(F.data.startswith(f"{Cb.SRC_MANAGE}:"))
+async def cb_source_manage(callback: types.CallbackQuery, state: FSMContext) -> None:
+    """Нажатие на номер: экран действий над выбранным источником."""
+    await ack_callback(callback)
+    index = Cb.parse_source_index(callback.data or "", Cb.SRC_MANAGE)
+    if index is None:
+        return
+    saved = await _saved_source(callback, state, index)
+    if saved is None:
+        return
+    source, count = saved
+    await show_main_menu(
+        callback,
+        buttons.SOURCE_MANAGE_PROMPT.format(source=escape_html(source), count=count),
+        keyboards.source_actions(index),
+    )
+
+
+@router.callback_query(F.data.startswith(f"{Cb.SRC_RENAME}:"))
+async def cb_source_rename(callback: types.CallbackQuery, state: FSMContext) -> None:
+    """«✏️ Rename»: запрашиваем новое имя источника."""
+    await ack_callback(callback)
+    index = Cb.parse_source_index(callback.data or "", Cb.SRC_RENAME)
+    if index is None:
+        return
+    saved = await _saved_source(callback, state, index)
+    if saved is None:
+        return
+    source, count = saved
+    await state.update_data(source=source)
+    await state.set_state(NoteStates.wait_source_name)
+    await show_main_menu(
+        callback,
+        buttons.SOURCE_RENAME_PROMPT.format(source=escape_html(source), count=count),
+        keyboards.new_source_cancel(),
+    )
+
+
+@router.message(NoteStates.wait_source_name, F.text)
+async def got_renamed_source(message: types.Message, state: FSMContext) -> None:
+    """Новое имя источника: переименовываем все его заметки."""
+    data = await state.get_data()
+    old_source = str(data.get("source", "")).strip()
+    new_source = (message.text or "").strip()
+    await state.clear()
+    repo = _repo(message)
+    if repo is None:
+        return
+    if not old_source:
+        await status_message(message, buttons.SOURCE_LOST)
+        await show_sources_manage(message, state)
+        return
+    try:
+        updated = await asyncio.to_thread(repo.rename_source, old_source, new_source)
+    except ValueError:
+        await status_message(message, "⚠️ Source name must not be empty.")
+        await show_sources_manage(message, state)
+        return
+    except Exception as e:
+        await send_error_message(message, e)
+        return
+    await status_message(message, buttons.SOURCE_RENAMED.format(count=updated))
+    await show_sources_manage(message, state)
+
+
+@router.callback_query(F.data.startswith(f"{Cb.SRC_DEL}:"))
+async def cb_source_delete(callback: types.CallbackQuery, state: FSMContext) -> None:
+    """«🗑 Delete»: подтверждение с количеством удаляемых заметок."""
+    await ack_callback(callback)
+    index = Cb.parse_source_index(callback.data or "", Cb.SRC_DEL)
+    if index is None:
+        return
+    saved = await _saved_source(callback, state, index)
+    if saved is None:
+        return
+    source, count = saved
+    await show_main_menu(
+        callback,
+        buttons.SOURCE_DELETE_CONFIRM.format(source=escape_html(source), count=count),
+        keyboards.source_delete_confirm(index),
+    )
+
+
+@router.callback_query(F.data.startswith(f"{Cb.SRC_DEL_CONFIRM}:"))
+async def cb_source_delete_confirm(
+    callback: types.CallbackQuery, state: FSMContext
+) -> None:
+    """«✅ Yes, delete»: удаляет источник со всеми его заметками."""
+    await ack_callback(callback)
+    index = Cb.parse_source_index(callback.data or "", Cb.SRC_DEL_CONFIRM)
+    if index is None:
+        return
+    saved = await _saved_source(callback, state, index)
+    if saved is None:
+        return
+    source, _ = saved
+    repo = _repo(callback)
+    if repo is None:
+        return
+    try:
+        deleted = await asyncio.to_thread(repo.delete_source, source)
+    except Exception as e:
+        await send_error_message(callback, e)
+        return
+    await status_message(callback, buttons.SOURCE_DELETED.format(count=deleted))
+    await show_sources_manage(callback, state)
+
+
 # --- Общие служебные утилиты ---
 
 
@@ -582,5 +777,6 @@ __all__ = [
     "ask_new_source",
     "router",
     "send_main_menu",
+    "show_sources_manage",
     "show_note",
 ]
