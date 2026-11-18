@@ -206,9 +206,11 @@ def note_card(note_id: str, source: str) -> InlineKeyboardMarkup:
     удаление и возврат к списку источника.
     """
     rows: list[list[InlineKeyboardButton]] = [
-        [_button(buttons.EDIT_FIELD, Cb.note_edit_menu(note_id))],
+        [
+            _button(buttons.EDIT_FIELD, Cb.note_edit_menu(note_id)),
+            _button(buttons.DELETE_NOTE, Cb.note_del(note_id)),
+        ],
         [_button(buttons.PHOTO, Cb.note_photo(note_id))],
-        [_button(buttons.DELETE_NOTE, Cb.note_del(note_id))],
     ]
     if source:
         rows.append([_button(buttons.BACK, Cb.src_notes(source))])
