@@ -77,11 +77,11 @@ def cancel_row() -> InlineKeyboardButton:
 
 def table_link(url: str) -> InlineKeyboardMarkup:
     """Ссылка на Google-таблицу."""
-    rows: list[list[InlineKeyboardButton]] = []
+    row: list[InlineKeyboardButton] = []
     if url:
-        rows.append([InlineKeyboardButton(text=buttons.OPEN_TABLE, url=url)])
-    rows.append([to_main_row()])
-    return _markup(rows)
+        row.append(InlineKeyboardButton(text=buttons.OPEN_TABLE, url=url))
+    row.append(to_main_row())
+    return _markup([row])
 
 
 # --- Источники ---
