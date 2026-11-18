@@ -58,8 +58,22 @@ def test_columns_menu_lists_only_custom_columns(use_service) -> None:
     assert "1. <b>ID</b>" not in text
     assert "Fixed:" in text
 
+    rows = sent["reply_markup"].inline_keyboard
     texts = [button.text for button in _flat(sent["reply_markup"])]
-    assert texts == ["1", "2", "3", buttons.ADD_COLUMN, buttons.TO_MAIN]
+    assert texts == [
+        "1",
+        "2",
+        "3",
+        buttons.ADD_COLUMN,
+        buttons.CHANGE_ORDER,
+        buttons.TO_MAIN,
+    ]
+    # «➕ Add column» и «🔢 Change order» — в одном ряду с меню.
+    assert [button.text for button in rows[-2]] == [
+        buttons.ADD_COLUMN,
+        buttons.CHANGE_ORDER,
+    ]
+    assert Cb.COL_REORDER in [button.callback_data for button in rows[-2]]
     assert "ID" not in texts
     assert "SOURCE" not in texts
     assert "NAME" not in texts
@@ -83,10 +97,14 @@ def test_column_number_opens_actions(use_service) -> None:
     flat = _flat(sent["reply_markup"])
     texts = [button.text for button in flat]
     datas = [button.callback_data for button in flat]
-    assert buttons.CHANGE_ORDER in texts
-    assert buttons.RENAME_SOURCE in texts
-    assert buttons.DELETE_SOURCE in texts
-    assert Cb.COL_REORDER in datas
+    assert texts == [
+        buttons.RENAME_SOURCE,
+        buttons.DELETE_SOURCE,
+        buttons.BACK,
+        buttons.TO_MAIN,
+    ]
+    assert buttons.CHANGE_ORDER not in texts
+    assert Cb.COL_REORDER not in datas
     assert Cb.col_rename(5) in datas
     assert not any("col_move" in (data or "") for data in datas)
 
@@ -116,6 +134,25 @@ def test_change_order_full_flow(use_service) -> None:
     assert sheet.rows[0][-1] == "COMMENT"
     assert state.state is None
     assert "1. <b>URL</b>" in message.sent[-1]["text"]
+
+
+def test_order_cancel_returns_to_columns(use_service) -> None:
+    """«✖️ Cancel» ввода порядка возвращает к списку «📋 Columns»."""
+    service, sheet = columns_for()
+    use_service(service)
+    state = FakeState()
+    asyncio.run(columns_handler.cb_columns_menu(_callback(Cb.MENU_COLUMNS), state))
+    asyncio.run(columns_handler.cb_column_reorder(_callback(Cb.COL_REORDER), state))
+    assert state.state == columns_handler.ColumnStates.wait_order
+
+    cancel_callback = _callback(Cb.CANCEL_INPUT)
+    asyncio.run(columns_handler.cb_cancel_column_order(cancel_callback, state))
+
+    assert state.state is None
+    sent = cancel_callback.message.sent[-1]
+    assert sent["text"].startswith(buttons.COLUMNS_PROMPT)
+    assert "1. <b>DESCRIPTION</b>" in sent["text"]
+    assert sheet.rows[0][:3] == ["ID", "SOURCE", "NAME"]
 
 
 def test_bad_order_keeps_user_in_order_state(use_service) -> None:

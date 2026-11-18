@@ -269,32 +269,34 @@ def photo_cancel(note_id: str, source: str) -> InlineKeyboardMarkup:
 
 def columns_menu(count: int) -> InlineKeyboardMarkup:
     """
-    «📋 Columns»: только кнопки-номера пользовательских колонок.
+    «📋 Columns»: кнопки-номера пользовательских колонок и действия над шапкой.
 
     В ``callback_data`` уходит позиция в списке (0-based), а не имя:
     имена колонок могут быть длинными, а лимит callback_data — 64 байта.
+    «🔢 Change order» меняет порядок всего списка, поэтому живёт здесь же,
+    рядом с «➕ Add column», а не в меню отдельной колонки.
     """
     numbers = [
         _button(str(position + 1), Cb.col_view(position))
         for position in range(min(count, PAGE_SIZE))
     ]
     rows = _rows(numbers, NOTE_NUMBER_ROW)
-    rows.append([_button(buttons.ADD_COLUMN, Cb.COL_ADD)])
+    actions = [_button(buttons.ADD_COLUMN, Cb.COL_ADD)]
+    if count >= 2:
+        actions.append(_button(buttons.CHANGE_ORDER, Cb.COL_REORDER))
+    rows.append(actions)
     rows.append([to_main_row()])
     return _markup(rows)
 
 
 def column_actions(col_index: int, can_delete: bool) -> InlineKeyboardMarkup:
     """
-    Меню выбранной колонки.
+    Меню выбранной колонки: только действия над ней самой.
 
-    Порядок колонок меняется списком номеров (``🔢 Change order``), стрелки
-    не нужны. Удаление скрыто для защищённых колонок (например, ``SCREEN``).
+    Порядок меняется на главном экране ``📋 Columns``. Удаление скрыто
+    для защищённых колонок (например, ``SCREEN``).
     """
-    edit = [
-        _button(buttons.CHANGE_ORDER, Cb.COL_REORDER),
-        _button(buttons.RENAME_SOURCE, Cb.col_rename(col_index)),
-    ]
+    edit = [_button(buttons.RENAME_SOURCE, Cb.col_rename(col_index))]
     if can_delete:
         edit.append(_button(buttons.DELETE_SOURCE, Cb.col_del(col_index)))
     rows: list[list[InlineKeyboardButton]] = [

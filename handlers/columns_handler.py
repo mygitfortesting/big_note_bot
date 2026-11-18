@@ -311,6 +311,16 @@ async def cb_column_reorder(callback: types.CallbackQuery, state: FSMContext) ->
     await show_main_menu(callback, text, keyboards.columns_cancel())
 
 
+@router.callback_query(ColumnStates.wait_order, F.data == Cb.CANCEL_INPUT)
+async def cb_cancel_column_order(
+    callback: types.CallbackQuery, state: FSMContext
+) -> None:
+    """«✖️ Cancel» ввода порядка — возврат к списку «📋 Columns»."""
+    await ack_callback(callback)
+    await state.clear()
+    await show_columns(callback, state)
+
+
 def _parse_order(text: str, total: int) -> list[int] | None:
     """Разбирает «2 1 3» в список номеров; None — ввод неверный."""
     parts = (text or "").replace(",", " ").split()
