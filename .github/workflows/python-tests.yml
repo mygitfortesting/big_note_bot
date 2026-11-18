@@ -1,0 +1,49 @@
+name: QA Automation Pipeline
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+
+jobs:
+  run-qa-tests:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: "pip"
+
+      - name: Create credentials.json from Secrets
+        env:
+          GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
+        run: |
+          python -c "import os, pathlib; pathlib.Path('credentials.json').write_text(os.environ['GOOGLE_CREDENTIALS'], encoding='utf-8')"
+          python -c "import json; json.load(open('credentials.json', encoding='utf-8')); print('credentials.json OK')"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install ruff mypy pytest pytest-asyncio
+
+      - name: Check code style (Ruff)
+        run: |
+          ruff check .
+          ruff format --check .
+
+      - name: Check static types (mypy)
+        run: mypy .
+
+      - name: Run Pytest Automation Suite
+        env:
+          BOT_TOKEN: "123456789:ABCdefGhIJKLMnNoPQRsTUVwxyZ"
+          SPREADSHEET_ID: ${{ secrets.SPREADSHEET_ID || 'test_spreadsheet_id_for_ci' }}
+          ADMIN_ID: ${{ secrets.ADMIN_ID || 0 }}
+        run: pytest tests -m "not integration" -v
