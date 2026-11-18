@@ -198,7 +198,7 @@ def test_add_note_without_sources_asks_for_new_source(use_repo) -> None:
 
     assert message.sent, f"Bot sent nothing: {message.sent}"
     sent = message.sent[-1]
-    assert sent["text"] == buttons.NEW_SOURCE_PROMPT
+    assert sent["text"] == buttons.NEW_SOURCE_PROMPT.format(existing="\n")
     assert state.state == NoteStates.wait_source
 
 
@@ -263,7 +263,7 @@ def test_add_source_without_sources_has_no_existing_line(use_repo) -> None:
 
     assert message.sent, f"Bot sent nothing: {message.sent}"
     sent = message.sent[-1]
-    assert sent["text"] == buttons.NEW_SOURCE_PROMPT
+    assert sent["text"] == buttons.NEW_SOURCE_PROMPT.format(existing="\n")
     keyboard = sent["reply_markup"].inline_keyboard
     datas = [button.callback_data for row in keyboard for button in row]
     assert Cb.CANCEL_INPUT in datas

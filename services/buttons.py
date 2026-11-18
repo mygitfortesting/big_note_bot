@@ -47,14 +47,7 @@ NEW_NOTE_PROMPT = (
 )
 
 NEW_SOURCE_PROMPT = (
-    "🗂 <b>New source</b>\n\nWrite the <b>SOURCE</b> name (e.g. <i>Instagram</i>):"
-)
-
-NEW_SOURCE_EXISTING = "Existing: {sources}"
-
-NEW_SOURCE_PROMPT_WITH_EXISTING = (
-    "🗂 <b>New source</b>\n"
-    "{existing}\n\nWrite the <b>SOURCE</b> name (e.g. <i>Instagram</i>):"
+    "🗂 <b>Add a new source</b>\n{existing}Write a <b>NEW NAME</b> for the source:"
 )
 
 NOTE_NAME_PROMPT = (

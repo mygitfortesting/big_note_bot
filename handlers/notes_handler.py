@@ -187,10 +187,7 @@ async def ask_new_source(
     event: types.Message | types.CallbackQuery, state: FSMContext | None = None
 ) -> None:
     """
-    Шаг 1 «🗂 Add source»: просим имя источника и ждём текст.
-
-    Если в таблице уже есть источники — показываем их списком, чтобы
-    пользователь не плодил дубликаты, и даём кнопку «✖️ Cancel».
+    Шаг 1 «🗂 Add source»: показываем список существующих и ждём имя.
     """
     if state is not None:
         await state.set_state(NoteStates.wait_source)
@@ -200,18 +197,14 @@ async def ask_new_source(
     try:
         sources = await asyncio.to_thread(repo.list_sources)
     except Exception as e:
-        # Список только подсказка: без него экран всё равно должен открыться,
-        # иначе кнопка «✖️ Cancel» остаётся недоступной.
         logger.warning("Could not list sources for /add_source: %s", e)
         sources = []
-    text = buttons.NEW_SOURCE_PROMPT
+    existing_block = ""
     if sources:
-        existing = ", ".join(
-            f"<code>{escape_html(source)}</code>" for source in sources
-        )
-        text = buttons.NEW_SOURCE_PROMPT_WITH_EXISTING.format(
-            existing=buttons.NEW_SOURCE_EXISTING.format(sources=existing)
-        )
+        codes = ", ".join(f"<code>{escape_html(source)}</code>" for source in sources)
+        existing_block = f"Existing: {codes}\n"
+
+    text = buttons.NEW_SOURCE_PROMPT.format(existing=f"{existing_block}\n")
     await show_main_menu(event, text, keyboards.new_source_cancel())
 
 
