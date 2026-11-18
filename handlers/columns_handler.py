@@ -290,7 +290,7 @@ def _ordered_text(svc: ColumnService) -> str:
     ]
     current = " ".join(str(number) for number in range(1, len(columns) + 1))
     lines.append(f"<code>{current}</code>")
-    return buttons.COLUMN_ORDER_PROMPT + "\n\n" + "\n".join(lines)
+    return buttons.COLUMN_ORDER_PROMPT + "\n\n" + "\n\n Copy: ".join(lines)
 
 
 @router.callback_query(F.data == Cb.COL_REORDER)

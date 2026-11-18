@@ -110,7 +110,6 @@ COLUMN_VIEW_PROMPT = "📋 <b>Column: {field}</b>\n\nChoose an action:"
 CHANGE_ORDER = "🔢 Change order"
 COLUMN_ORDER_PROMPT = (
     "🔢 <b>Change column order</b>\n\n"
-    "Send numbers separated by spaces (e.g. <code>2 1 3</code>).\n"
     "<b>ID</b>, <b>SOURCE</b>, <b>TITLE</b> stay first, <b>COMMENT</b> stays last."
 )
 COLUMN_ORDER_BAD_INPUT = (

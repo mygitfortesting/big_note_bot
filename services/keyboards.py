@@ -54,10 +54,10 @@ def main_menu() -> InlineKeyboardMarkup:
                 _button(buttons.ADD_SOURCE, Cb.SRC_ADD),
             ],
             [
-                _button(buttons.COLUMNS, Cb.MENU_COLUMNS),
+                _button(buttons.SOURCES, Cb.MENU_SOURCES),
                 _button(buttons.BY_SOURCE, Cb.SRC_LIST),
             ],
-            [_button(buttons.SOURCES, Cb.MENU_SOURCES)],
+            [_button(buttons.COLUMNS, Cb.MENU_COLUMNS)],
         ]
     )
 
@@ -221,10 +221,7 @@ def notes(
 
 
 def note_card(note_id: str, source: str) -> InlineKeyboardMarkup:
-    """
-    Клавиатура карточки заметки: только 4 кнопки — правка поля, скриншот,
-    удаление и возврат к списку источника.
-    """
+    """Клавиатура карточки заметки: правка поля, скриншот, удаление и навигация."""
     rows: list[list[InlineKeyboardButton]] = [
         [
             _button(buttons.EDIT_FIELD, Cb.note_edit_menu(note_id)),
@@ -232,9 +229,8 @@ def note_card(note_id: str, source: str) -> InlineKeyboardMarkup:
         ],
         [_button(buttons.PHOTO, Cb.note_photo(note_id))],
     ]
-    if source:
-        rows.append([_button(buttons.BACK, Cb.src_notes(source))])
-    rows.append([to_main_row()])
+    nav_button = _button(buttons.BACK, Cb.src_notes(source)) if source else cancel_row()
+    rows.append([nav_button, to_main_row()])
     return _markup(rows)
 
 
