@@ -466,6 +466,33 @@ def test_source_actions_show_notes(use_repo) -> None:
     assert texts[:2] == ["1", "2"]
 
 
+def test_empty_source_keeps_action_buttons(use_repo) -> None:
+    """Пустой источник: «There are no notes…» с теми же действиями."""
+    repo, _ = repo_for([])
+    repo.add_source("Podcast")
+    use_repo(repo)
+    state = FakeState()
+
+    asyncio.run(notes_handler.cb_manage_sources(_callback(Cb.MENU_SOURCES), state))
+    show_callback = _callback(Cb.src_show_notes(0))
+    asyncio.run(notes_handler.cb_source_show_notes(show_callback, state))
+
+    sent = show_callback.message.sent[-1]
+    assert "There are no notes in <b>Podcast</b> yet." in sent["text"]
+    rows = sent["reply_markup"].inline_keyboard
+    texts = [button.text for row in rows for button in row]
+    datas = [button.callback_data for row in rows for button in row]
+    assert texts == [
+        buttons.ADD_NOTE_ROW,
+        buttons.EDIT_SOURCE,
+        buttons.BACK,
+        buttons.TO_MAIN,
+    ]
+    assert Cb.src_new_note(0) in datas
+    assert Cb.src_rename(0) in datas
+    assert Cb.SRC_LIST in datas
+
+
 def test_notes_list_is_numbered_with_code_names(use_repo) -> None:
     """Список заметок: «1. <code>Заголовок</code>» и кнопки-номера."""
     repo, _ = repo_for(

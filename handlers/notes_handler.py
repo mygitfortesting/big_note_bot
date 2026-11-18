@@ -350,11 +350,14 @@ async def _send_notes_list(
     notes: list[Note],
     state: FSMContext | None = None,
 ) -> None:
+    source_index = await _index_of_source(source, state) if state else None
     if not notes:
+        # Пустой источник — та же клавиатура, что и у непустого списка:
+        # только кнопки-номера не рисуются, остальные действия те же.
         await show_main_menu(
             event,
             buttons.NO_NOTES.format(source=escape_html(source)),
-            keyboards.back_to_main(),
+            keyboards.notes([], source, source_index=source_index),
         )
         return
     title_col = title_column_index(repo.headers())
@@ -364,7 +367,6 @@ async def _send_notes_list(
     ]
     header = buttons.NOTES_PROMPT.format(source=escape_html(source), count=len(notes))
     text = header + "\n\n" + "\n".join(lines)
-    source_index = await _index_of_source(source, state) if state else None
     markup = keyboards.notes(
         [note.note_id for note in notes], source, source_index=source_index
     )
