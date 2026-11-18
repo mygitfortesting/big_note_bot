@@ -45,17 +45,7 @@ MAX_COLUMNS = 60
 BOT_TOKEN_ENV = "BOT_TOKEN"
 
 
-def _int_set(raw: str | None) -> set[int]:
-    """Разбирает список ID через запятую в множество int (мусор пропускается)."""
-    result: set[int] = set()
-    for part in (raw or "").split(","):
-        part = part.strip()
-        if part.lstrip("-").isdigit():
-            result.add(int(part))
-    return result
-
-
-_ADMIN_IDS = _int_set(os.getenv("ADMIN_IDS") or os.getenv("ADMIN_ID"))
+ADMIN_ID = int(os.getenv("ADMIN_ID", "0"))
 
 # --- aiogram ---
 
@@ -65,22 +55,24 @@ dp = Dispatcher(storage=MemoryStorage())
 
 
 def get_bot() -> Bot:
-    """Ленивый синглтон бота: ранняя проверка токена до старта polling."""
+    """Создаёт экземпляр Bot один раз при первом вызове и кэширует его в _bot."""
     global _bot
-    if _bot is None:
+    bot = _bot
+    if bot is None:
         token = (os.getenv(BOT_TOKEN_ENV) or "").strip()
         if not token:
             raise RuntimeError(f"Environment variable {BOT_TOKEN_ENV} is not set.")
-        _bot = Bot(
+        bot = Bot(
             token=token,
             default=DefaultBotProperties(parse_mode=ParseMode.HTML),
         )
-    return _bot
+        _bot = bot
+    return bot
 
 
 def is_admin(user_id: int | None) -> bool:
     """Админ ли пользователь (работает с основной вкладкой MY_NOTES)."""
-    return user_id is not None and user_id in _ADMIN_IDS
+    return user_id == ADMIN_ID
 
 
 def notes_sheet_name(user_id: int | None) -> str:
@@ -165,17 +157,20 @@ def get_table_url() -> str:
     return (os.getenv("SPREADSHEET_URL") or "").strip()
 
 
-def _ensure_sheet(title: str) -> _Worksheet:
-    """Возвращает лист по имени, создавая его с базовой шапкой при отсутствии."""
+def _ensure_sheet(title: str, headers: list[str] | None = None) -> _Worksheet:
+    """Возвращает лист по имени, создавая его с шапкой ``headers`` при отсутствии."""
+    target_headers = headers if headers is not None else NOTES_HEADERS
     spreadsheet = get_spreadsheet()
     try:
         worksheet = spreadsheet.worksheet(title)
     except Exception:
         worksheet = spreadsheet.add_worksheet(
-            title=title, rows=100, cols=len(NOTES_HEADERS) + 20
+            title=title,
+            rows=100,
+            cols=max(len(target_headers) + 5, 10),
         )
-        worksheet.append_row(list(NOTES_HEADERS), value_input_option="RAW")
-        logger.info("Created sheet %s with base header", title)
+        worksheet.append_row(list(target_headers), value_input_option="RAW")
+        logger.info("Created sheet %s with header", title)
     return worksheet
 
 
@@ -196,7 +191,7 @@ def get_notes_sheet() -> _Worksheet:
 
 def get_users_sheet() -> _Worksheet:
     """Служебный лист ``Users`` с реестром пользователей."""
-    return _ensure_sheet(USERS_SHEET)
+    return _ensure_sheet(USERS_SHEET, headers=USERS_HEADERS)
 
 
 def setup_user_sheets(from_user: Any) -> str:

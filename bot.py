@@ -129,9 +129,9 @@ async def set_bot_commands() -> None:
     await get_bot().set_my_commands(
         [
             types.BotCommand(command=Cmd.START, description=buttons.START),
-            types.BotCommand(command=Cmd.HELP, description=buttons.HELP),
             types.BotCommand(command=Cmd.ADD_SOURCE, description=buttons.ADD_SOURCE),
             types.BotCommand(command=Cmd.ADD_NOTE, description=buttons.ADD_NOTE),
+            types.BotCommand(command=Cmd.HELP, description=buttons.HELP),
             types.BotCommand(command=Cmd.TABLE, description=buttons.OPEN_TABLE),
         ]
     )
