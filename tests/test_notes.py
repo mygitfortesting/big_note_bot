@@ -602,10 +602,41 @@ def test_search_by_title_nothing_found(use_repo) -> None:
 
     asyncio.run(notes_handler.search_by_title(message))
 
-    text = message.sent[-1]["text"]
+    sent = message.sent[-1]
+    text = sent["text"]
     assert text.startswith(buttons.NOTHING_FOUND.split("{")[0])
     assert "&lt;script&gt;" in text
     assert "<script>" not in text
+    rows = sent["reply_markup"].inline_keyboard
+    datas = [button.callback_data for row in rows for button in row]
+    assert Cb.NOTE_ADD in datas
+    assert Cb.TO_MAIN in datas
+
+
+def test_source_navigation_buttons(use_repo) -> None:
+    """Notes by source — без Cancel; ввод TITLE — с Cancel."""
+    by_source = keyboards.sources_with_counts([("Blog", 2)])
+    datas = [
+        button.callback_data for row in by_source.inline_keyboard for button in row
+    ]
+    assert Cb.CANCEL_INPUT not in datas
+    assert Cb.TO_MAIN in datas
+
+    repo, _ = repo_for([note_row("1", "Blog", "a")])
+    use_repo(repo)
+    message = FakeMessage("", user_id=1)
+    state = FakeState()
+
+    asyncio.run(notes_handler.ask_note_title(message, state, "Blog"))
+
+    prompt = message.sent[-1]
+    title_datas = [
+        button.callback_data
+        for row in prompt["reply_markup"].inline_keyboard
+        for button in row
+    ]
+    assert Cb.CANCEL_INPUT in title_datas
+    assert Cb.TO_MAIN in title_datas
 
 
 def test_search_ignores_commands(use_repo) -> None:

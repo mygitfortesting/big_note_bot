@@ -32,7 +32,7 @@ from services.telegram_io import (
     show_main_menu,
     status_message,
 )
-from services.text_utils import escape_html
+from services.text_utils import escape_html, with_min_width
 
 logger = logging.getLogger(__name__)
 
@@ -137,7 +137,7 @@ def _show_column_state(
 ) -> tuple[str, types.InlineKeyboardMarkup]:
     """Текст и клавиатура меню одной колонки (без обращения к сети)."""
     can_delete = col_index not in svc.protected_columns()
-    text = buttons.COLUMN_VIEW_PROMPT.format(field=escape_html(name))
+    text = with_min_width(buttons.COLUMN_VIEW_PROMPT.format(field=escape_html(name)))
     markup = keyboards.column_actions(col_index, can_delete)
     return text, markup
 

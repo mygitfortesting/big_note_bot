@@ -70,8 +70,14 @@ def _is_filled(value: str | None) -> bool:
     return (value or "").strip() not in _EMPTY_VALUES
 
 
-#: Сколько «пустых» символов Брайля добавлять в конец карточки.
-CARD_MIN_WIDTH_SYMBOLS = 26
+#: «Пустая» строка фиксированной ширины: символы Брайля Telegram считает
+#: шириной, поэтому пузырь не сжимается и ряд из двух кнопок не обрезается.
+WIDTH_SPACER = "\u2800" * 26
+
+
+def with_min_width(text: str) -> str:
+    """Добивает короткий экран с кнопками до минимальной ширины пузыря."""
+    return f"{text}\n\n{WIDTH_SPACER}"
 
 
 def note_card_lines(
@@ -102,10 +108,8 @@ def note_card_lines(
         lines.append(f"<b>{label}:</b> {content}")
     if title:
         lines.insert(0, f"<b>{escape_html(title)}</b>")
-    # Пустые символы Брайля: Telegram считает их шириной, поэтому пузырь
-    # сообщения не сжимается и ряд кнопок под карточкой не обрезается.
-    # Держим их отдельным блоком, чтобы не склеиваться с последним полем.
-    lines.append("\u2800" * CARD_MIN_WIDTH_SYMBOLS)
+    # Отступ отдельным блоком: не склеивается с последним полем карточки.
+    lines.append(WIDTH_SPACER)
     return lines
 
 

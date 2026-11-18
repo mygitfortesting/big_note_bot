@@ -12,6 +12,7 @@ from handlers import columns_handler
 from services import buttons
 from services.callback import Cb
 from services.sheets import ColumnService
+from services.text_utils import WIDTH_SPACER
 from tests.factories import columns_for
 from tests.fakes import FakeCallback, FakeMessage, FakeState, FakeUser
 
@@ -94,6 +95,8 @@ def test_column_number_opens_actions(use_service) -> None:
 
     sent = callback.message.sent[-1]
     assert "Column: URL" in sent["text"]
+    # Короткий экран добивается до минимальной ширины пузыря.
+    assert sent["text"].endswith(WIDTH_SPACER)
     flat = _flat(sent["reply_markup"])
     texts = [button.text for button in flat]
     datas = [button.callback_data for button in flat]

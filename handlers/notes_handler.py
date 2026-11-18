@@ -36,7 +36,7 @@ from services.telegram_io import (
     show_main_menu,
     status_message,
 )
-from services.text_utils import escape_html, note_card_text
+from services.text_utils import escape_html, note_card_text, with_min_width
 
 logger = logging.getLogger(__name__)
 
@@ -219,7 +219,7 @@ async def ask_note_title(
     await show_main_menu(
         event,
         buttons.NOTE_TITLE_PROMPT.format(source=escape_html(source)),
-        keyboards.back_to_main(),
+        keyboards.new_source_cancel(),
     )
 
 
@@ -356,7 +356,7 @@ async def _send_notes_list(
         # только кнопки-номера не рисуются, остальные действия те же.
         await show_main_menu(
             event,
-            buttons.NO_NOTES.format(source=escape_html(source)),
+            with_min_width(buttons.NO_NOTES.format(source=escape_html(source))),
             keyboards.notes([], source, source_index=source_index),
         )
         return
@@ -714,7 +714,7 @@ async def cb_source_manage(callback: types.CallbackQuery, state: FSMContext) -> 
     source, _ = saved
     await show_main_menu(
         callback,
-        buttons.SOURCE_MANAGE_PROMPT.format(source=escape_html(source)),
+        with_min_width(buttons.SOURCE_MANAGE_PROMPT.format(source=escape_html(source))),
         keyboards.source_actions(index),
     )
 
@@ -818,10 +818,11 @@ async def cb_source_delete(callback: types.CallbackQuery, state: FSMContext) -> 
     if saved is None:
         return
     source, count = saved
+    confirm = buttons.SOURCE_DELETE_CONFIRM.format(
+        source=escape_html(source), count=count
+    )
     await show_main_menu(
-        callback,
-        buttons.SOURCE_DELETE_CONFIRM.format(source=escape_html(source), count=count),
-        keyboards.source_delete_confirm(index),
+        callback, with_min_width(confirm), keyboards.source_delete_confirm(index)
     )
 
 
@@ -873,8 +874,10 @@ async def search_by_title(message: types.Message) -> None:
         await send_error_message(message, e)
         return
     if not found:
-        await status_message(
-            message, buttons.NOTHING_FOUND.format(query=escape_html(query))
+        await show_main_menu(
+            message,
+            buttons.NOTHING_FOUND.format(query=escape_html(query)),
+            keyboards.search_not_found(),
         )
         return
     if len(found) == 1:

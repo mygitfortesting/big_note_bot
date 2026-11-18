@@ -67,6 +67,11 @@ def back_to_main() -> InlineKeyboardMarkup:
     return _markup([[to_main_row()]])
 
 
+def search_not_found() -> InlineKeyboardMarkup:
+    """Ничего не нашлось: предложить добавить заметку или вернуться в меню."""
+    return _markup([[_button(buttons.ADD_NOTE, Cb.NOTE_ADD), to_main_row()]])
+
+
 def to_main_row() -> InlineKeyboardButton:
     """Кнопка «🏠 Main menu» — ведёт в главное меню."""
     return _button(buttons.TO_MAIN, Cb.TO_MAIN)
@@ -126,7 +131,7 @@ def sources_with_counts(
         _button(f"{source} · {count}", Cb.src_notes(source))
         for source, count in counts[:PAGE_SIZE]
     ]
-    return _markup([*_rows(items, 2), [cancel_row(), to_main_row()]])
+    return _markup([*_rows(items, 2), [to_main_row()]])
 
 
 # --- Управление источниками ---
@@ -323,6 +328,7 @@ __all__ = [
     "photo_cancel",
     "source_actions",
     "source_delete_confirm",
+    "search_not_found",
     "sources",
     "sources_manage",
     "sources_with_counts",
