@@ -189,13 +189,22 @@ def source_delete_confirm(index: int) -> InlineKeyboardMarkup:
 # --- Заметки ---
 
 
+#: Сколько кнопок-номеров заметок в одном ряду.
+NOTE_NUMBER_ROW = 5
+
+
 def notes(note_ids: Sequence[str], source: str) -> InlineKeyboardMarkup:
-    """Список заметок источника: каждая кнопка открывает карточку."""
+    """
+    Список заметок источника: кнопки-номера 1..N открывают карточку.
+
+    В тексте кнопки — порядковый номер (как в пронумерованном списке),
+    в ``callback_data`` — настоящий ID заметки.
+    """
     items = [
-        _button(f"📝 {note_id}", Cb.note_view(note_id, source))
-        for note_id in note_ids[:PAGE_SIZE]
+        _button(str(index), Cb.note_view(note_id, source))
+        for index, note_id in enumerate(note_ids[:PAGE_SIZE], start=1)
     ]
-    rows = _rows(items, 1)
+    rows = _rows(items, NOTE_NUMBER_ROW)
     rows.append([_button(buttons.BACK, Cb.SRC_LIST), to_main_row()])
     return _markup(rows)
 

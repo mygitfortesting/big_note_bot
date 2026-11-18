@@ -430,6 +430,33 @@ class NoteRepository(_SheetBound):
         notes.sort(key=lambda note: note.value(name_col).strip().lower())
         return notes
 
+    def find_by_name(self, query: str) -> list[Note]:
+        """
+        Заметки по имени: точное совпадение NAME приоритетнее частичного.
+
+        Сравнение без учёта регистра и лишних пробелов. Если есть хотя бы
+        одно точное совпадение — возвращаются только они, иначе — все
+        заметки, где запрос входит в NAME как подстрока.
+        """
+        wanted = (query or "").strip().lower()
+        if not wanted:
+            return []
+        headers = self.headers()
+        if not headers:
+            return []
+        name_col = name_column_index(headers)
+        exact: list[Note] = []
+        partial: list[Note] = []
+        for note in self.list_notes():
+            name = note.value(name_col).strip().lower()
+            if not name:
+                continue
+            if name == wanted:
+                exact.append(note)
+            elif wanted in name:
+                partial.append(note)
+        return exact or partial
+
     def locate(self, note_id: str) -> tuple[int, Note] | None:
         """(номер строки, заметка) или None, если записи с таким ID нет."""
         wanted = str(note_id).strip()

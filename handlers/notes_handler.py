@@ -14,7 +14,7 @@ import logging
 from dataclasses import dataclass
 
 from aiogram import F, Router, types
-from aiogram.filters import Command
+from aiogram.filters import Command, StateFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 
@@ -317,6 +317,12 @@ async def cb_source_notes(callback: types.CallbackQuery, state: FSMContext) -> N
         await send_error_message(callback, e)
 
 
+def _note_name(note: Note, name_col: int) -> str:
+    """NAME заметки для списка (или «ID xxx», если NAME пустое)."""
+    name = note.value(name_col).strip()
+    return name or f"ID {note.note_id}"
+
+
 async def _send_notes_list(
     event: types.Message | types.CallbackQuery,
     repo: NoteRepository,
@@ -330,12 +336,11 @@ async def _send_notes_list(
             keyboards.back_to_main(),
         )
         return
-    headers = repo.headers()
-    name_col = name_column_index(headers)
-    lines = []
-    for note in notes:
-        name = note.value(name_col).strip() or f"ID {note.note_id}"
-        lines.append(f"• {escape_html(name)}")
+    name_col = name_column_index(repo.headers())
+    lines = [
+        f"{index}. <code>{escape_html(_note_name(note, name_col))}</code>"
+        for index, note in enumerate(notes, start=1)
+    ]
     header = buttons.NOTES_PROMPT.format(source=escape_html(source), count=len(notes))
     text = header + "\n\n" + "\n".join(lines)
     markup = keyboards.notes([note.note_id for note in notes], source)
@@ -788,6 +793,50 @@ async def cb_source_delete_confirm(
     await show_sources_manage(callback, state)
 
 
+# --- Поиск заметки по названию (текстом в чат) ---
+
+
+@router.message(StateFilter(None), F.text)
+async def search_note_by_name(message: types.Message) -> None:
+    """
+    Текст вне диалога — поиск заметки по NAME.
+
+    Одно совпадение открывает карточку сразу, несколько — пронумерованный
+    список с кнопками-номерами, ни одного — понятное сообщение.
+    """
+    query = (message.text or "").strip()
+    if not query or query.startswith("/"):
+        return  # команды обрабатываются своими хендлерами
+    repo = _repo(message)
+    if repo is None:
+        return
+    try:
+        found = await asyncio.to_thread(repo.find_by_name, query)
+    except Exception as e:
+        await send_error_message(message, e)
+        return
+    if not found:
+        await status_message(
+            message, buttons.NOTHING_FOUND.format(query=escape_html(query))
+        )
+        return
+    if len(found) == 1:
+        await show_note(message, found[0].note_id)
+        return
+    headers = repo.headers()
+    name_col = name_column_index(headers)
+    source_col = source_column_index(headers)
+    lines = [
+        f"{index}. <code>{escape_html(_note_name(note, name_col))}</code> "
+        f"(<i>{escape_html(note.value(source_col).strip())}</i>)"
+        for index, note in enumerate(found, start=1)
+    ]
+    header = buttons.SEARCH_RESULTS.format(count=len(found))
+    text = header + "\n\n" + "\n".join(lines)
+    markup = keyboards.notes([note.note_id for note in found], "")
+    await send_parts(message, text, markup)
+
+
 # --- Общие служебные утилиты ---
 
 
@@ -806,6 +855,7 @@ __all__ = [
     "ask_note_source",
     "ask_new_source",
     "router",
+    "search_note_by_name",
     "send_main_menu",
     "show_sources_manage",
     "show_note",

@@ -277,8 +277,8 @@ def test_note_card_has_only_four_buttons() -> None:
 
     assert texts == [
         buttons.EDIT_FIELD,
-        buttons.PHOTO,
         buttons.DELETE_NOTE,
+        buttons.PHOTO,
         buttons.BACK,
         buttons.TO_MAIN,
     ]
@@ -426,7 +426,7 @@ def test_sources_menu_numbers_and_opens_actions(use_repo) -> None:
 
 
 def test_source_actions_show_notes(use_repo) -> None:
-    """«📂 Show notes» открывает заметки выбранного источника."""
+    """«📂 Show notes» открывает нумерованные заметки источника."""
     repo, _ = repo_for([note_row("1", "Blog", "a"), note_row("2", "Blog", "b")])
     use_repo(repo)
     state = FakeState()
@@ -437,12 +437,102 @@ def test_source_actions_show_notes(use_repo) -> None:
 
     sent = show_callback.message.sent[-1]
     assert "2 note(s)" in sent["text"]
+    texts = [
+        button.text for row in sent["reply_markup"].inline_keyboard for button in row
+    ]
+    assert texts[:2] == ["1", "2"]
+
+
+def test_notes_list_is_numbered_with_code_names(use_repo) -> None:
+    """Список заметок: «1. <code>Name</code>» и кнопки-номера вместо ID."""
+    repo, _ = repo_for(
+        [note_row("a1", "Blog", "FlexiTech"), note_row("b2", "Blog", "Yandex")]
+    )
+    use_repo(repo)
+    callback = _callback(Cb.src_notes("Blog"))
+
+    asyncio.run(notes_handler.cb_source_notes(callback, FakeState()))
+
+    sent = callback.message.sent[-1]
+    assert "1. <code>FlexiTech</code>" in sent["text"]
+    assert "2. <code>Yandex</code>" in sent["text"]
+    keyboard = sent["reply_markup"].inline_keyboard
+    texts = [button.text for row in keyboard for button in row]
+    datas = [button.callback_data for row in keyboard for button in row]
+    assert texts[:2] == ["1", "2"]
+    assert Cb.note_view("a1", "Blog") in datas
+    assert Cb.note_view("b2", "Blog") in datas
+    assert not any(text.startswith("📝") for text in texts)
+
+
+def test_search_by_name_opens_single_card(use_repo) -> None:
+    """Уникальное имя, отправленное текстом, сразу открывает карточку."""
+    repo, _ = repo_for(
+        [note_row("1", "Blog", "FlexiTech"), note_row("2", "Blog", "Yandex")]
+    )
+    use_repo(repo)
+    message = FakeMessage("flexitech", user_id=1)
+
+    asyncio.run(notes_handler.search_note_by_name(message))
+
+    assert len(message.sent) == 1
+    text = message.sent[-1]["text"]
+    assert "FlexiTech" in text
+    assert "yandex" not in text.lower()
     datas = [
         button.callback_data
-        for row in sent["reply_markup"].inline_keyboard
+        for row in message.sent[-1]["reply_markup"].inline_keyboard
         for button in row
     ]
+    assert Cb.note_edit_menu("1") in datas
+
+
+def test_search_by_name_lists_several_matches(use_repo) -> None:
+    """Несколько совпадений — нумерованный список с кнопками-номерами."""
+    repo, _ = repo_for(
+        [
+            note_row("1", "Blog", "Yandex Zen"),
+            note_row("2", "News", "Yandex Music"),
+        ]
+    )
+    use_repo(repo)
+    message = FakeMessage("yandex", user_id=1)
+
+    asyncio.run(notes_handler.search_note_by_name(message))
+
+    sent = message.sent[-1]
+    assert "1. <code>Yandex Zen</code> (<i>Blog</i>)" in sent["text"]
+    assert "2. <code>Yandex Music</code> (<i>News</i>)" in sent["text"]
+    keyboard = sent["reply_markup"].inline_keyboard
+    texts = [button.text for row in keyboard for button in row]
+    datas = [button.callback_data for row in keyboard for button in row]
+    assert texts[:2] == ["1", "2"]
     assert any(data.startswith(f"{Cb.NOTE_VIEW}:") for data in datas)
+
+
+def test_search_by_name_nothing_found(use_repo) -> None:
+    """Ничего не нашлось — сообщение с экранированным запросом."""
+    repo, _ = repo_for([note_row("1", "Blog", "FlexiTech")])
+    use_repo(repo)
+    message = FakeMessage("<script>", user_id=1)
+
+    asyncio.run(notes_handler.search_note_by_name(message))
+
+    text = message.sent[-1]["text"]
+    assert text.startswith(buttons.NOTHING_FOUND.split("{")[0])
+    assert "&lt;script&gt;" in text
+    assert "<script>" not in text
+
+
+def test_search_ignores_commands(use_repo) -> None:
+    """Слэш-команды не перехватываются поиском."""
+    repo, _ = repo_for([note_row("1", "Blog", "FlexiTech")])
+    use_repo(repo)
+    message = FakeMessage("/start", user_id=1)
+
+    asyncio.run(notes_handler.search_note_by_name(message))
+
+    assert message.sent == []
 
 
 def test_source_actions_add_note_skips_source_choice(use_repo) -> None:

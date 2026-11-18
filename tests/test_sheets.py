@@ -135,6 +135,43 @@ def test_list_sources_with_counts() -> None:
     assert repo.list_sources_with_counts() == [("blog", 2), ("YouTube", 1)]
 
 
+# --- Поиск по названию ---
+
+
+def test_find_by_name_exact_wins_over_partial() -> None:
+    """Точное совпадение NAME приоритетнее частичного."""
+    rows = [
+        note_row("1", "Blog", "Yandex"),
+        note_row("2", "Blog", "Yandex Zen"),
+        note_row("3", "Blog", "FlexiTech"),
+    ]
+    repo, _ = repo_for(rows)
+
+    found = repo.find_by_name("  yandex ")
+
+    assert [note.note_id for note in found] == ["1"]
+
+
+def test_find_by_name_partial_when_no_exact() -> None:
+    """Нет точного — возвращаются все строки, где запрос — подстрока."""
+    rows = [
+        note_row("1", "Blog", "Yandex Zen"),
+        note_row("2", "Blog", "Yandex Music"),
+        note_row("3", "Blog", "FlexiTech"),
+    ]
+    repo, _ = repo_for(rows)
+
+    found = repo.find_by_name("YANDEX")
+
+    assert [note.note_id for note in found] == ["1", "2"]
+
+
+def test_find_by_name_empty_query_returns_nothing() -> None:
+    repo, _ = repo_for([note_row("1", "Blog", "Yandex")])
+
+    assert repo.find_by_name("   ") == []
+
+
 # --- Переименование и удаление источника ---
 
 

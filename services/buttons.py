@@ -90,6 +90,8 @@ NO_NOTES = "📭 There are no notes in <b>{source}</b> yet."
 NOTES_PROMPT = "📂 <b>{source}</b> — {count} note(s):"
 
 NOTE_DELETED = "🗑 Note deleted."
+NOTHING_FOUND = "🤷‍♂️ Nothing found for '{query}'. Try another name."
+SEARCH_RESULTS = "🔎 <b>Found</b> — {count} note(s):"
 NOTE_SAVED = "✅ Saved."
 PHOTO_SAVED = "✅ Screenshot saved to SCREEN."
 
