@@ -377,12 +377,13 @@ async def show_note(event: types.Message | types.CallbackQuery, note_id: str) ->
     text = ctx.card_text()
     markup = keyboards.note_card(ctx.note_id, ctx.source)
     # Утиная типизация: у кнопки есть message, у обычного сообщения — нет.
-    message = getattr(event, "message", None) or event
-    if message is None:
-        return
-    if ctx.screen:
+    # ``answer_photo`` проверяем через getattr (вызываемость, а не isinstance),
+    # чтобы работали и двойники в тестах, и mypy видел конкретный метод.
+    target = event.message if isinstance(event, types.CallbackQuery) else event
+    answer_photo = getattr(target, "answer_photo", None)
+    if ctx.screen and callable(answer_photo):
         try:
-            await message.answer_photo(ctx.screen, caption=text, reply_markup=markup)
+            await answer_photo(ctx.screen, caption=text, reply_markup=markup)
             return
         except Exception as e:
             # file_id мог устареть (фото удалено) — показываем хотя бы текст
