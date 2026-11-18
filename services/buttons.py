@@ -52,8 +52,8 @@ NEW_SOURCE_PROMPT = (
     "🗂 <b>Add a new source</b>\n{existing}Write a <b>NEW NAME</b> for the source:"
 )
 
-NOTE_NAME_PROMPT = (
-    "📝 <b>New note</b>\n\nSource: <b>{source}</b>\nWrite the new note <b>NAME</b>:"
+NOTE_TITLE_PROMPT = (
+    "📝 <b>New note</b>\n\nSource: <b>{source}</b>\nWrite the new note <b>TITLE</b>:"
 )
 
 EDIT_FIELD_PROMPT = (
@@ -98,19 +98,18 @@ PHOTO_SAVED = "✅ Screenshot saved to SCREEN."
 
 COLUMNS_PROMPT = (
     "📋 <b>Columns</b>\n\n"
-    "<code>ID</code>, <code>SOURCE</code>, <code>NAME</code> are fixed first, "
+    "<code>ID</code>, <code>SOURCE</code>, <code>TITLE</code> are fixed first, "
     "<code>COMMENT</code> is always last. New columns are inserted before it."
 )
 COLUMN_ADD_PROMPT = "➕ <b>New column</b>\n\nWrite the column name:"
 COLUMN_RENAME_PROMPT = "✏️ <b>Rename column</b> <b>{field}</b>\n\nSend the new name:"
 COLUMN_VIEW_PROMPT = "📋 <b>Column: {field}</b>\n\nChoose an action:"
-#: Короткая подпись о закреплённых колонках под списком пользовательских.
-COLUMNS_FIXED_HINT = "<b>Fixed:</b> {leading} → {comment}"
+
 CHANGE_ORDER = "🔢 Change order"
 COLUMN_ORDER_PROMPT = (
     "🔢 <b>Change column order</b>\n\n"
     "Send numbers separated by spaces (e.g. <code>2 1 3</code>).\n"
-    "<b>ID</b>, <b>SOURCE</b>, <b>NAME</b> stay first, <b>COMMENT</b> stays last."
+    "<b>ID</b>, <b>SOURCE</b>, <b>TITLE</b> stay first, <b>COMMENT</b> stays last."
 )
 COLUMN_ORDER_BAD_INPUT = (
     "⚠️ Send each number from {low} to {high} exactly once, "
@@ -122,7 +121,7 @@ HELP_TEXT = (
     "❓ <b>How to use the bot</b>\n"
     "<i>Everything is done with buttons — no commands needed.</i>\n\n"
     "<b>➕ Add note</b> — pick an existing source or create a new one, "
-    "then set the note name.\n"
+    "then set the note title.\n"
     "<b>📂 Notes by source</b> — browse notes grouped by source.\n"
     "<b>📋 Columns</b> — add, rename, reorder or delete custom columns.\n\n"
     "In a note card you can edit any field via <b>✏️ Edit field</b>, "

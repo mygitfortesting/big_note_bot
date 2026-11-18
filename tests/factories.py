@@ -11,14 +11,14 @@ from tests.fakes import FakeSheet, make_sheet
 def note_row(
     note_id: str,
     source: str,
-    name: str,
+    title: str,
     description: str = "",
     url: str = "",
     screen: str = "",
     comment: str = "",
 ) -> list[str]:
     """Строка заметки в порядке базовой шапки (ID..COMMENT)."""
-    return [note_id, source, name, description, url, screen, comment]
+    return [note_id, source, title, description, url, screen, comment]
 
 
 def sheet_with_notes(

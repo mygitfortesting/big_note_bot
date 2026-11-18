@@ -32,8 +32,16 @@ USERS_SHEET = "Users"
 NOTES_SHEET_TEMPLATE = "Notes_{user_id}"
 
 #: Шапка нового листа заметок. Порядок служебных колонок фиксирован:
-#: ID -> SOURCE -> NAME ... -> SCREEN ... -> COMMENT.
-NOTES_HEADERS = ["ID", "SOURCE", "NAME", "DESCRIPTION", "URL", "SCREEN", "COMMENT"]
+#: ID -> SOURCE -> TITLE ... -> SCREEN ... -> COMMENT.
+NOTES_HEADERS = [
+    "ID",
+    "SOURCE",
+    "TITLE",
+    "DESCRIPTION",
+    "URL",
+    "SCREEN",
+    "COMMENT",
+]
 
 #: Шапка служебного листа ``Users``.
 USERS_HEADERS = ["USER_ID", "USERNAME", "FULL_NAME", "NOTES_SHEET", "CREATED_AT"]

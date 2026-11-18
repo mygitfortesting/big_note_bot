@@ -2,7 +2,7 @@
 Хендлеры управления колонками листа заметок.
 
 Добавление, удаление, переименование и изменение порядка пользовательских
-колонок. Защита ``ID``/``SOURCE``/``NAME`` (в начале) и ``COMMENT`` (в конце)
+колонок. Защита ``ID``/``SOURCE``/``TITLE`` (в начале) и ``COMMENT`` (в конце)
 живёт в ``ColumnService``; здесь только UI и обработка отказов — пользователь
 получает всплывающее объяснение вместо исключения.
 """
@@ -19,11 +19,9 @@ from aiogram.fsm.state import State, StatesGroup
 from services import buttons, keyboards
 from services.callback import Cb
 from services.sheets import (
-    COMMENT_HEADER,
     ID_HEADER,
-    LEADING_HEADERS,
-    NAME_HEADER,
     SOURCE_HEADER,
+    TITLE_HEADER,
     ColumnService,
 )
 from services.telegram_io import (
@@ -41,7 +39,7 @@ logger = logging.getLogger(__name__)
 router = Router(name="columns")
 
 #: Колонки, которые нельзя переименовывать (удаление запрещает ColumnService).
-LOCKED_FOR_RENAME = {ID_HEADER, SOURCE_HEADER, NAME_HEADER}
+LOCKED_FOR_RENAME = {ID_HEADER, SOURCE_HEADER, TITLE_HEADER}
 
 
 class ColumnStates(StatesGroup):
@@ -66,7 +64,7 @@ def _editable_columns(svc: ColumnService) -> list[tuple[int, str]]:
     """
     (номер в шапке, имя) только пользовательских колонок.
 
-    Закреплённые ``ID``/``SOURCE``/``NAME`` (в начале) и ``COMMENT``
+    Закреплённые ``ID``/``SOURCE``/``TITLE`` (в начале) и ``COMMENT``
     (в конце) в список не попадают — они упоминаются в тексте подсказкой.
     """
     headers = svc.headers()
@@ -79,16 +77,13 @@ def _editable_columns(svc: ColumnService) -> list[tuple[int, str]]:
 
 def _columns_text(columns: list[tuple[int, str]]) -> str:
     """Текст экрана: нумерованный список пользовательских колонок."""
-    hints = buttons.COLUMNS_FIXED_HINT.format(
-        leading=", ".join(LEADING_HEADERS), comment=COMMENT_HEADER
-    )
     if not columns:
-        return f"{buttons.COLUMNS_PROMPT}\n\n{hints}"
+        return buttons.COLUMNS_PROMPT
     lines = [
-        f"{position}. <b>{escape_html(name)}</b>"
+        f"{position}. <code>{escape_html(name)}</code>"
         for position, (_, name) in enumerate(columns, start=1)
     ]
-    return f"{buttons.COLUMNS_PROMPT}\n\n{hints}\n\n" + "\n".join(lines)
+    return buttons.COLUMNS_PROMPT + "\n\n" + "\n".join(lines)
 
 
 async def show_columns(
@@ -260,7 +255,7 @@ async def cb_column_rename(callback: types.CallbackQuery, state: FSMContext) -> 
 
 @router.message(ColumnStates.wait_rename, F.text)
 async def got_renamed_column(message: types.Message, state: FSMContext) -> None:
-    """Переименовывает выбранную колонку (ID/SOURCE/NAME отклоняются)."""
+    """Переименовывает выбранную колонку (ID/SOURCE/TITLE отклоняются)."""
     data = await state.get_data()
     col_index = int(data.get("col_index", 0) or 0)
     name = (message.text or "").strip()
@@ -282,12 +277,19 @@ async def got_renamed_column(message: types.Message, state: FSMContext) -> None:
 
 
 def _ordered_text(svc: ColumnService) -> str:
-    """Нумерованный список изменяемых колонок для ввода порядка."""
+    """
+    Нумерованный список изменяемых колонок для ввода порядка.
+
+    В конце — готовая для копирования строка текущих номеров, чтобы
+    пользователь поменял в ней цифры местами и отправил обратно.
+    """
     columns = _editable_columns(svc)
     lines = [
-        f"{position}. <b>{escape_html(name)}</b>"
+        f"{position}. <code>{escape_html(name)}</code>"
         for position, (_, name) in enumerate(columns, start=1)
     ]
+    current = " ".join(str(number) for number in range(1, len(columns) + 1))
+    lines.append(f"<code>{current}</code>")
     return buttons.COLUMN_ORDER_PROMPT + "\n\n" + "\n".join(lines)
 
 

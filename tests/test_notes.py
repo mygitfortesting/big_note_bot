@@ -14,9 +14,9 @@ from services import buttons, keyboards
 from services.callback import Cb
 from services.sheets import (
     COMMENT_HEADER,
-    NAME_HEADER,
     SCREEN_HEADER,
     SOURCE_HEADER,
+    TITLE_HEADER,
     Note,
 )
 from services.text_utils import note_card_lines, split_messages
@@ -62,7 +62,7 @@ def test_card_outputs_only_filled_fields() -> None:
     text = "\n".join(lines)
 
     assert "SOURCE:" in text
-    assert "NAME:" in text
+    assert "TITLE:" in text
     assert "DESCRIPTION:" in text
     assert "COMMENT:" in text
     assert "URL" not in text
@@ -120,7 +120,7 @@ def test_note_context_editable_columns_exclude_id_and_screen() -> None:
 
     assert "ID" not in editable
     assert SCREEN_HEADER not in editable
-    assert NAME_HEADER in editable
+    assert TITLE_HEADER in editable
     assert COMMENT_HEADER in editable
 
 
@@ -302,7 +302,7 @@ def test_note_card_has_only_four_buttons() -> None:
     assert Cb.note_edit_cell("id1", 2) not in datas
     field_labels = (
         f"✏️ {SOURCE_HEADER}",
-        f"✏️ {NAME_HEADER}",
+        f"✏️ {TITLE_HEADER}",
         "✏️ DESCRIPTION",
         "✏️ URL",
         f"✏️ {COMMENT_HEADER}",
@@ -319,15 +319,15 @@ def test_select_source_then_name_creates_note(use_repo) -> None:
     asyncio.run(
         notes_handler.cb_select_source(_callback(Cb.src_select("YouTube")), state)
     )
-    assert state.state == NoteStates.wait_name
+    assert state.state == NoteStates.wait_title
     assert state.data["source"] == "YouTube"
 
     message = FakeMessage("Zebra", user_id=1)
-    asyncio.run(notes_handler.got_note_name(message, state))
+    asyncio.run(notes_handler.got_note_title(message, state))
 
     data = rows_by_header(sheet)
-    names = [row[NAME_HEADER] for row in data]
-    assert names == ["b", "Zebra"]
+    titles = [row[TITLE_HEADER] for row in data]
+    assert titles == ["b", "Zebra"]
     assert all(row[SOURCE_HEADER] == "YouTube" for row in data)
     assert state.state is None
 
@@ -342,17 +342,17 @@ def test_new_source_asks_for_first_note_not_empty_row(use_repo) -> None:
 
     asyncio.run(notes_handler.got_new_source(message, state))
 
-    assert state.state == NoteStates.wait_name
+    assert state.state == NoteStates.wait_title
     assert state.data["source"] == "Instagram"
     assert sheet.rows == [NOTES_HEADERS]  # пустая строка не появилась
 
     name_message = FakeMessage("My first post", user_id=1)
-    asyncio.run(notes_handler.got_note_name(name_message, state))
+    asyncio.run(notes_handler.got_note_title(name_message, state))
 
     data = rows_by_header(sheet)
     assert len(data) == 1
     assert data[0][SOURCE_HEADER] == "Instagram"
-    assert data[0][NAME_HEADER] == "My first post"
+    assert data[0][TITLE_HEADER] == "My first post"
 
 
 def test_edit_field_accepts_any_column_except_id_and_screen() -> None:
@@ -459,7 +459,7 @@ def test_source_actions_show_notes(use_repo) -> None:
 
 
 def test_notes_list_is_numbered_with_code_names(use_repo) -> None:
-    """Список заметок: «1. <code>Name</code>» и кнопки-номера вместо ID."""
+    """Список заметок: «1. <code>Заголовок</code>» и кнопки-номера."""
     repo, _ = repo_for(
         [note_row("a1", "Blog", "FlexiTech"), note_row("b2", "Blog", "Yandex")]
     )
@@ -483,7 +483,7 @@ def test_notes_list_is_numbered_with_code_names(use_repo) -> None:
 
 
 def test_notes_list_add_note_button_starts_name_prompt(use_repo) -> None:
-    """«➕ Add Note» из списка заметок сразу просит NAME для этого источника."""
+    """«➕ Add Note» из списка заметок сразу просит TITLE для источника."""
     repo, _ = repo_for([note_row("a1", "Blog", "FlexiTech")])
     use_repo(repo)
     state = FakeState()
@@ -492,7 +492,7 @@ def test_notes_list_add_note_button_starts_name_prompt(use_repo) -> None:
     add_callback = _callback(Cb.src_new_note(0))
     asyncio.run(notes_handler.cb_source_new_note(add_callback, state))
 
-    assert state.state == NoteStates.wait_name
+    assert state.state == NoteStates.wait_title
     assert state.data["source"] == "Blog"
     prompt = add_callback.message.sent[-1]
     assert "Source: <b>Blog</b>" in prompt["text"]
@@ -514,7 +514,7 @@ def test_notes_list_edit_source_button_starts_rename(use_repo) -> None:
     assert "Rename source" in prompt["text"]
 
 
-def test_search_by_name_opens_single_card(use_repo) -> None:
+def test_search_by_title_opens_single_card(use_repo) -> None:
     """Уникальное имя, отправленное текстом, сразу открывает карточку."""
     repo, _ = repo_for(
         [note_row("1", "Blog", "FlexiTech"), note_row("2", "Blog", "Yandex")]
@@ -522,7 +522,7 @@ def test_search_by_name_opens_single_card(use_repo) -> None:
     use_repo(repo)
     message = FakeMessage("flexitech", user_id=1)
 
-    asyncio.run(notes_handler.search_note_by_name(message))
+    asyncio.run(notes_handler.search_by_title(message))
 
     assert len(message.sent) == 1
     text = message.sent[-1]["text"]
@@ -536,7 +536,7 @@ def test_search_by_name_opens_single_card(use_repo) -> None:
     assert Cb.note_edit_menu("1") in datas
 
 
-def test_search_by_name_lists_several_matches(use_repo) -> None:
+def test_search_by_title_lists_several_matches(use_repo) -> None:
     """Несколько совпадений — нумерованный список с кнопками-номерами."""
     repo, _ = repo_for(
         [
@@ -547,7 +547,7 @@ def test_search_by_name_lists_several_matches(use_repo) -> None:
     use_repo(repo)
     message = FakeMessage("yandex", user_id=1)
 
-    asyncio.run(notes_handler.search_note_by_name(message))
+    asyncio.run(notes_handler.search_by_title(message))
 
     sent = message.sent[-1]
     assert "1. <code>Yandex Zen</code> (<i>Blog</i>)" in sent["text"]
@@ -559,13 +559,13 @@ def test_search_by_name_lists_several_matches(use_repo) -> None:
     assert any(data.startswith(f"{Cb.NOTE_VIEW}:") for data in datas)
 
 
-def test_search_by_name_nothing_found(use_repo) -> None:
+def test_search_by_title_nothing_found(use_repo) -> None:
     """Ничего не нашлось — сообщение с экранированным запросом."""
     repo, _ = repo_for([note_row("1", "Blog", "FlexiTech")])
     use_repo(repo)
     message = FakeMessage("<script>", user_id=1)
 
-    asyncio.run(notes_handler.search_note_by_name(message))
+    asyncio.run(notes_handler.search_by_title(message))
 
     text = message.sent[-1]["text"]
     assert text.startswith(buttons.NOTHING_FOUND.split("{")[0])
@@ -579,13 +579,13 @@ def test_search_ignores_commands(use_repo) -> None:
     use_repo(repo)
     message = FakeMessage("/start", user_id=1)
 
-    asyncio.run(notes_handler.search_note_by_name(message))
+    asyncio.run(notes_handler.search_by_title(message))
 
     assert message.sent == []
 
 
 def test_source_actions_add_note_skips_source_choice(use_repo) -> None:
-    """«➕ Add note» сразу просит NAME для этого источника."""
+    """«➕ Add note» сразу просит TITLE для этого источника."""
     repo, sheet = repo_for([note_row("1", "Blog", "a")])
     use_repo(repo)
     state = FakeState()
@@ -594,17 +594,17 @@ def test_source_actions_add_note_skips_source_choice(use_repo) -> None:
     add_callback = _callback(Cb.src_new_note(0))
     asyncio.run(notes_handler.cb_source_new_note(add_callback, state))
 
-    assert state.state == NoteStates.wait_name
+    assert state.state == NoteStates.wait_title
     assert state.data["source"] == "Blog"
     prompt = add_callback.message.sent[-1]
     assert "Source: <b>Blog</b>" in prompt["text"]
 
     message = FakeMessage("Fresh", user_id=1)
-    asyncio.run(notes_handler.got_note_name(message, state))
+    asyncio.run(notes_handler.got_note_title(message, state))
 
     data = rows_by_header(sheet)
     assert [row[SOURCE_HEADER] for row in data] == ["Blog", "Blog"]
-    assert "Fresh" in [row[NAME_HEADER] for row in data]
+    assert "Fresh" in [row[TITLE_HEADER] for row in data]
 
 
 def test_sources_menu_rename_flow(use_repo) -> None:

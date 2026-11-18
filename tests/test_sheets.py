@@ -8,9 +8,9 @@ from config import NOTES_HEADERS
 from services.sheets import (
     COMMENT_HEADER,
     ID_HEADER,
-    NAME_HEADER,
     SCREEN_HEADER,
     SOURCE_HEADER,
+    TITLE_HEADER,
     NoteRepository,
     column_letter,
     pad_row,
@@ -34,8 +34,8 @@ def test_pad_row_fills_short_rows() -> None:
 # --- Сортировка ---
 
 
-def test_sort_notes_by_source_then_name() -> None:
-    """Сортировка: сначала SOURCE (без регистра), затем NAME (без регистра)."""
+def test_sort_notes_by_source_then_title() -> None:
+    """Сортировка: сначала SOURCE (без регистра), затем TITLE (без регистра)."""
     rows = [
         note_row("3", "twitter", "beta"),
         note_row("1", "Instagram", "Zulu"),
@@ -54,7 +54,7 @@ def test_sort_notes_by_source_then_name() -> None:
         "Instagram",
         "twitter",
     ]
-    assert data[0][NAME_HEADER] == "Gamma"
+    assert data[0][TITLE_HEADER] == "Gamma"
 
 
 def test_sort_keeps_header_on_top() -> None:
@@ -75,7 +75,7 @@ def test_create_adds_note_and_sorts() -> None:
     assert [row[SOURCE_HEADER] for row in data] == ["Blog", "YouTube"]
     created = repo.get(note_id)
     assert created is not None
-    assert created.field(NOTES_HEADERS, NAME_HEADER) == "Aaa"
+    assert created.field(NOTES_HEADERS, TITLE_HEADER) == "Aaa"
     assert created.field(NOTES_HEADERS, SOURCE_HEADER) == "Blog"
 
 
@@ -103,7 +103,7 @@ def test_list_sources_unique_sorted() -> None:
     assert repo.list_sources() == ["blog", "YouTube"]
 
 
-def test_list_by_source_sorted_by_name() -> None:
+def test_list_by_source_sorted_by_title() -> None:
     rows = [
         note_row("1", "Blog", "Zebra"),
         note_row("2", "Blog", "apple"),
@@ -111,10 +111,10 @@ def test_list_by_source_sorted_by_name() -> None:
     ]
     repo, _ = repo_for(rows)
 
-    names = [
-        note.field(NOTES_HEADERS, NAME_HEADER) for note in repo.list_by_source("blog")
+    titles = [
+        note.field(NOTES_HEADERS, TITLE_HEADER) for note in repo.list_by_source("blog")
     ]
-    assert names == ["apple", "Zebra"]
+    assert titles == ["apple", "Zebra"]
 
 
 def test_list_by_source_is_case_insensitive() -> None:
@@ -138,8 +138,8 @@ def test_list_sources_with_counts() -> None:
 # --- Поиск по названию ---
 
 
-def test_find_by_name_exact_wins_over_partial() -> None:
-    """Точное совпадение NAME приоритетнее частичного."""
+def test_find_by_title_exact_wins_over_partial() -> None:
+    """Точное совпадение TITLE приоритетнее частичного."""
     rows = [
         note_row("1", "Blog", "Yandex"),
         note_row("2", "Blog", "Yandex Zen"),
@@ -147,12 +147,12 @@ def test_find_by_name_exact_wins_over_partial() -> None:
     ]
     repo, _ = repo_for(rows)
 
-    found = repo.find_by_name("  yandex ")
+    found = repo.find_by_title("  yandex ")
 
     assert [note.note_id for note in found] == ["1"]
 
 
-def test_find_by_name_partial_when_no_exact() -> None:
+def test_find_by_title_partial_when_no_exact() -> None:
     """Нет точного — возвращаются все строки, где запрос — подстрока."""
     rows = [
         note_row("1", "Blog", "Yandex Zen"),
@@ -161,22 +161,22 @@ def test_find_by_name_partial_when_no_exact() -> None:
     ]
     repo, _ = repo_for(rows)
 
-    found = repo.find_by_name("YANDEX")
+    found = repo.find_by_title("YANDEX")
 
     assert [note.note_id for note in found] == ["1", "2"]
 
 
-def test_find_by_name_empty_query_returns_nothing() -> None:
+def test_find_by_title_empty_query_returns_nothing() -> None:
     repo, _ = repo_for([note_row("1", "Blog", "Yandex")])
 
-    assert repo.find_by_name("   ") == []
+    assert repo.find_by_title("   ") == []
 
 
 # --- Автозаполнение ID для ручных строк ---
 
 
 def test_manual_row_without_id_gets_generated_id() -> None:
-    """Строка, вписанная руками (SOURCE/NAME без ID), получает ID в таблицу."""
+    """Строка, вписанная руками (SOURCE/TITLE без ID), получает ID в таблицу."""
     repo, sheet = repo_for([["", "Blog", "Manual", "", "", "", ""]])
 
     notes = repo.list_notes()
@@ -224,7 +224,7 @@ def test_rename_source_changes_all_rows_and_resorts() -> None:
     assert updated == 2
     data = rows_by_header(sheet)
     assert [row[SOURCE_HEADER] for row in data] == ["Podcast", "Podcast", "YouTube"]
-    assert [row[NAME_HEADER] for row in data] == ["apple", "Zebra", "a"]
+    assert [row[TITLE_HEADER] for row in data] == ["apple", "Zebra", "a"]
     assert repo.list_sources() == ["Podcast", "YouTube"]
 
 
@@ -303,7 +303,7 @@ def test_prompt_row_is_not_a_note() -> None:
 
 
 @pytest.mark.parametrize(
-    "header", [ID_HEADER, SOURCE_HEADER, NAME_HEADER, SCREEN_HEADER]
+    "header", [ID_HEADER, SOURCE_HEADER, TITLE_HEADER, SCREEN_HEADER]
 )
 def test_protected_columns_cannot_be_deleted(header: str) -> None:
     service, sheet = columns_for([])
@@ -335,14 +335,14 @@ def test_comment_stays_last_after_reorder() -> None:
     order = list(range(1, width + 1))
     price_col = sheet.rows[0].index("PRICE") + 1
     order.remove(price_col)
-    order.insert(3, price_col)  # PRICE сразу после NAME
+    order.insert(3, price_col)  # PRICE сразу после TITLE
     service.reorder(order)
 
     assert sheet.rows[0][-1] == COMMENT_HEADER
     assert sheet.rows[0][3] == "PRICE"
 
 
-@pytest.mark.parametrize("header", [ID_HEADER, SOURCE_HEADER, NAME_HEADER])
+@pytest.mark.parametrize("header", [ID_HEADER, SOURCE_HEADER, TITLE_HEADER])
 def test_leading_columns_cannot_be_renamed(header: str) -> None:
     service, _ = columns_for([])
     col_index = NOTES_HEADERS.index(header) + 1
@@ -380,7 +380,7 @@ def test_user_column_is_inserted_before_comment() -> None:
     assert sheet.rows[0] == [
         "ID",
         "SOURCE",
-        "NAME",
+        "TITLE",
         "DESCRIPTION",
         "URL",
         "SCREEN",
@@ -404,7 +404,7 @@ def test_user_column_can_be_renamed_and_deleted() -> None:
 
 
 def test_reorder_rejects_moving_leading_columns() -> None:
-    """Полный порядок не может двигать ID, SOURCE, NAME из начала."""
+    """Полный порядок не может двигать ID, SOURCE, TITLE из начала."""
     service, _ = columns_for([])
     width = len(NOTES_HEADERS)
 
@@ -423,10 +423,10 @@ def test_reorder_keeps_data() -> None:
     order[3], order[4] = order[4], order[3]  # URL и DESCRIPTION
     header = service.reorder(order)
 
-    assert header[:3] == [ID_HEADER, SOURCE_HEADER, NAME_HEADER]
+    assert header[:3] == [ID_HEADER, SOURCE_HEADER, TITLE_HEADER]
     assert header[-1] == COMMENT_HEADER
     row = dict(zip(sheet.rows[0], sheet.rows[1]))
-    assert row[NAME_HEADER] == "Note"
+    assert row[TITLE_HEADER] == "Note"
     assert row["DESCRIPTION"] == "Desc"
 
 
@@ -441,14 +441,14 @@ def test_reorder_middle_rejects_bad_permutation() -> None:
 
 
 def test_reorder_middle_keeps_leading_and_comment() -> None:
-    """Перестановка средних колонок сохраняет ID/SOURCE/NAME и COMMENT."""
+    """Перестановка средних колонок сохраняет ID/SOURCE/TITLE и COMMENT."""
     service, sheet = columns_for(
         [note_row("1", "Blog", "Note", "Desc", "https://x", "fid", "c")]
     )
 
     header = service.reorder_middle([2, 1, 3])
 
-    assert header[:3] == [ID_HEADER, SOURCE_HEADER, NAME_HEADER]
+    assert header[:3] == [ID_HEADER, SOURCE_HEADER, TITLE_HEADER]
     assert header[-1] == COMMENT_HEADER
     assert header[3:6] == ["URL", "DESCRIPTION", SCREEN_HEADER]
     row = dict(zip(sheet.rows[0], sheet.rows[1]))
@@ -456,7 +456,7 @@ def test_reorder_middle_keeps_leading_and_comment() -> None:
     assert row["URL"] == "https://x"
     assert row[SCREEN_HEADER] == "fid"
     assert row[COMMENT_HEADER] == "c"
-    assert row[NAME_HEADER] == "Note"
+    assert row[TITLE_HEADER] == "Note"
 
 
 def test_short_rows_are_padded_to_header_width() -> None:

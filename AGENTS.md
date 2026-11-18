@@ -19,9 +19,9 @@ Telegram-бот заметок (`Python 3.13`, `aiogram 3.x`, `gspread`, `OpenAI
 - `handlers/notes_handler.py` / `handlers/columns_handler.py` — диалоги, FSM и вызовы репозиториев через `asyncio.to_thread`.
 
 ## 3. BUSINESS & SAFETY RULES
-- **Структура колонок (`BASE_HEADERS`):** `ID | SOURCE | NAME | DESCRIPTION | URL | SCREEN | [пользовательские...] | COMMENT`.
-- **Защита колонок (`ColumnService`):** `ID`, `SOURCE`, `NAME` (первые 3) и `COMMENT` (последняя) нельзя удалить, переименовать или сдвинуть. `SCREEN` нельзя удалить (но можно переименовать). Новые колонки вставляются перед `COMMENT` (`insert_cols`).
-- **Сортировка и чистота данных:** `NoteRepository` всегда держит лист отсортированным по `SOURCE` ➔ `NAME` (без учёта регистра). Пустых заметок без `NAME` не создаём; удаление — только через `delete_rows`.
+- **Структура колонок (`BASE_HEADERS`):** `ID | SOURCE | TITLE | DESCRIPTION | URL | SCREEN | [пользовательские...] | COMMENT`.
+- **Защита колонок (`ColumnService`):** `ID`, `SOURCE`, `TITLE` (первые 3) и `COMMENT` (последняя) нельзя удалить, переименовать или сдвинуть. `SCREEN` нельзя удалить (но можно переименовать). Новые колонки вставляются перед `COMMENT` (`insert_cols`).
+- **Сортировка и чистота данных:** `NoteRepository` всегда держит лист отсортированным по `SOURCE` ➔ `TITLE` (без учёта регистра). Пустых заметок без `TITLE` не создаём; удаление — только через `delete_rows`.
 - **Карточка и скриншот:** `note_card_lines` выводит только заполненные поля (пропуская пустые, `-`, `—`, `ID` и `SCREEN`). В `SCREEN` хранится только `message.photo[-1].file_id`, показывается через `answer_photo` (при ошибке — текстовая карточка + лог).
 - **Изоляция:** `user_id` берётся строго из `event.from_user.id`, кэш сбрасывается точечно через `invalidate_cache(user_id)`.
 

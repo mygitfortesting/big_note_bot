@@ -23,9 +23,9 @@ from services.callback import Cb, Cmd
 from services.sheets import (
     Note,
     NoteRepository,
-    name_column_index,
     screen_column_index,
     source_column_index,
+    title_column_index,
 )
 from services.telegram_io import (
     ack_callback,
@@ -53,7 +53,7 @@ class NoteStates(StatesGroup):
     """Состояния ввода сценариев заметок."""
 
     wait_source = State()  # ввод имени нового источника
-    wait_name = State()  # ввод названия заметки
+    wait_title = State()  # ввод заголовка (TITLE) заметки
     wait_value = State()  # ввод значения колонки
     wait_photo = State()  # ожидание фото для SCREEN
     wait_source_name = State()  # новое имя существующего источника
@@ -78,10 +78,10 @@ class NoteContext:
         return self.note.value(index).strip() if index else ""
 
     @property
-    def name(self) -> str:
-        """NAME заметки (или «ID xxx», если имя пустое)."""
-        name = self.note.value(name_column_index(self.headers)).strip()
-        return name or f"ID {self.note_id}"
+    def title(self) -> str:
+        """TITLE заметки (или «ID xxx», если заголовок пустой)."""
+        title = self.note.value(title_column_index(self.headers)).strip()
+        return title or f"ID {self.note_id}"
 
     def editable_columns(self) -> list[tuple[int, str]]:
         """(номер, имя) колонок для текстовой правки — всё, кроме ID и SCREEN."""
@@ -94,7 +94,7 @@ class NoteContext:
     def card_text(self) -> str:
         """Карточка: только заполненные колонки, между полями — пустая строка."""
         return note_card_text(self.headers, self.note.values) or (
-            f"<b>📝 {escape_html(self.name)}</b>"
+            f"<b>📝 {escape_html(self.title)}</b>"
         )
 
 
@@ -198,6 +198,7 @@ async def ask_new_source(
     try:
         sources = await asyncio.to_thread(repo.list_sources)
     except Exception as e:
+        # Список источников — только подсказка: экран всё равно открывается.
         logger.warning("Could not list sources for /add_source: %s", e)
         sources = []
     existing_block = ""
@@ -209,15 +210,15 @@ async def ask_new_source(
     await show_main_menu(event, text, keyboards.new_source_cancel())
 
 
-async def ask_note_name(
+async def ask_note_title(
     event: types.Message | types.CallbackQuery, state: FSMContext, source: str
 ) -> None:
-    """Шаг 2: просим название заметки для выбранного/нового источника."""
-    await state.set_state(NoteStates.wait_name)
+    """Шаг 2: просим TITLE заметки для выбранного/нового источника."""
+    await state.set_state(NoteStates.wait_title)
     await state.update_data(source=source)
     await show_main_menu(
         event,
-        buttons.NOTE_NAME_PROMPT.format(source=escape_html(source)),
+        buttons.NOTE_TITLE_PROMPT.format(source=escape_html(source)),
         keyboards.back_to_main(),
     )
 
@@ -235,15 +236,15 @@ async def got_new_source(message: types.Message, state: FSMContext) -> None:
     if not source:
         await status_message(message, "⚠️ Source name must not be empty.")
         return
-    await ask_note_name(message, state, source)
+    await ask_note_title(message, state, source)
 
 
-@router.message(NoteStates.wait_name, F.text)
-async def got_note_name(message: types.Message, state: FSMContext) -> None:
+@router.message(NoteStates.wait_title, F.text)
+async def got_note_title(message: types.Message, state: FSMContext) -> None:
     """Создаём заметку выбранного источника и открываем её карточку."""
     data = await state.get_data()
     source = str(data.get("source", "")).strip()
-    name = (message.text or "").strip()
+    title = (message.text or "").strip()
     await state.clear()
     if not source:
         await status_message(message, "⚠️ Source is lost, start again.")
@@ -253,7 +254,7 @@ async def got_note_name(message: types.Message, state: FSMContext) -> None:
     if repo is None:
         return
     try:
-        note_id = await asyncio.to_thread(repo.create, source, name)
+        note_id = await asyncio.to_thread(repo.create, source, title)
         await show_note(message, note_id)
     except Exception as e:
         await send_error_message(message, e)
@@ -266,7 +267,7 @@ async def cb_select_source(callback: types.CallbackQuery, state: FSMContext) -> 
     source = Cb.parse_source(callback.data or "", Cb.SRC_SELECT)
     if not source:
         return
-    await ask_note_name(callback, state, source)
+    await ask_note_title(callback, state, source)
 
 
 # --- Навигация по источникам ---
@@ -302,7 +303,7 @@ def _source_counts(repo: NoteRepository) -> list[tuple[str, int]]:
 
 @router.callback_query(F.data.startswith(f"{Cb.SRC_NOTES}:"))
 async def cb_source_notes(callback: types.CallbackQuery, state: FSMContext) -> None:
-    """Все заметки источника по алфавиту (NAME без учёта регистра)."""
+    """Все заметки источника по алфавиту (TITLE без учёта регистра)."""
     await ack_callback(callback)
     await state.clear()
     source = Cb.parse_source(callback.data or "", Cb.SRC_NOTES)
@@ -319,10 +320,10 @@ async def cb_source_notes(callback: types.CallbackQuery, state: FSMContext) -> N
         await send_error_message(callback, e)
 
 
-def _note_name(note: Note, name_col: int) -> str:
-    """NAME заметки для списка (или «ID xxx», если NAME пустое)."""
-    name = note.value(name_col).strip()
-    return name or f"ID {note.note_id}"
+def _note_title(note: Note, title_col: int) -> str:
+    """TITLE заметки для списка (или «ID xxx», если TITLE пустое)."""
+    title = note.value(title_col).strip()
+    return title or f"ID {note.note_id}"
 
 
 async def _send_notes_list(
@@ -339,9 +340,9 @@ async def _send_notes_list(
             keyboards.back_to_main(),
         )
         return
-    name_col = name_column_index(repo.headers())
+    title_col = title_column_index(repo.headers())
     lines = [
-        f"{index}. <code>{escape_html(_note_name(note, name_col))}</code>"
+        f"{index}. <code>{escape_html(_note_title(note, title_col))}</code>"
         for index, note in enumerate(notes, start=1)
     ]
     header = buttons.NOTES_PROMPT.format(source=escape_html(source), count=len(notes))
@@ -423,7 +424,7 @@ async def cb_edit_menu(callback: types.CallbackQuery, state: FSMContext) -> None
         return
     await show_main_menu(
         callback,
-        f"✏️ <b>{escape_html(ctx.name)}</b>\n\nChoose a field to edit:",
+        f"✏️ <b>{escape_html(ctx.title)}</b>\n\nChoose a field to edit:",
         keyboards.edit_fields_only(ctx.editable_columns(), ctx.note_id),
     )
 
@@ -456,7 +457,7 @@ async def cb_edit_cell(callback: types.CallbackQuery, state: FSMContext) -> None
     await show_main_menu(
         callback,
         buttons.EDIT_FIELD_PROMPT.format(
-            name=escape_html(ctx.name), field=escape_html(field)
+            name=escape_html(ctx.title), field=escape_html(field)
         ),
         keyboards.photo_cancel(note_id, ctx.source),
     )
@@ -517,7 +518,7 @@ async def cb_photo(callback: types.CallbackQuery, state: FSMContext) -> None:
     await state.update_data(note_id=ref.note_id)
     await show_main_menu(
         callback,
-        buttons.PHOTO_PROMPT.format(name=escape_html(ctx.name)),
+        buttons.PHOTO_PROMPT.format(name=escape_html(ctx.title)),
         keyboards.photo_cancel(ref.note_id, ctx.source),
     )
 
@@ -733,7 +734,7 @@ async def cb_source_new_note(callback: types.CallbackQuery, state: FSMContext) -
     if saved is None:
         return
     source, _ = saved
-    await ask_note_name(callback, state, source)
+    await ask_note_title(callback, state, source)
 
 
 @router.callback_query(F.data.startswith(f"{Cb.SRC_RENAME}:"))
@@ -830,13 +831,13 @@ async def cb_source_delete_confirm(
     await show_sources_manage(callback, state)
 
 
-# --- Поиск заметки по названию (текстом в чат) ---
+# --- Поиск заметки по заголовку (текстом в чат) ---
 
 
 @router.message(StateFilter(None), F.text)
-async def search_note_by_name(message: types.Message) -> None:
+async def search_by_title(message: types.Message) -> None:
     """
-    Текст вне диалога — поиск заметки по NAME.
+    Текст вне диалога — поиск заметки по TITLE.
 
     Одно совпадение открывает карточку сразу, несколько — пронумерованный
     список с кнопками-номерами, ни одного — понятное сообщение.
@@ -848,7 +849,7 @@ async def search_note_by_name(message: types.Message) -> None:
     if repo is None:
         return
     try:
-        found = await asyncio.to_thread(repo.find_by_name, query)
+        found = await asyncio.to_thread(repo.find_by_title, query)
     except Exception as e:
         await send_error_message(message, e)
         return
@@ -861,10 +862,10 @@ async def search_note_by_name(message: types.Message) -> None:
         await show_note(message, found[0].note_id)
         return
     headers = repo.headers()
-    name_col = name_column_index(headers)
+    title_col = title_column_index(headers)
     source_col = source_column_index(headers)
     lines = [
-        f"{index}. <code>{escape_html(_note_name(note, name_col))}</code> "
+        f"{index}. <code>{escape_html(_note_title(note, title_col))}</code> "
         f"(<i>{escape_html(note.value(source_col).strip())}</i>)"
         for index, note in enumerate(found, start=1)
     ]
@@ -888,11 +889,11 @@ async def cb_cancel(callback: types.CallbackQuery, state: FSMContext) -> None:
 __all__ = [
     "NoteContext",
     "NoteStates",
-    "ask_note_name",
+    "ask_note_title",
     "ask_note_source",
     "ask_new_source",
     "router",
-    "search_note_by_name",
+    "search_by_title",
     "send_main_menu",
     "show_sources_manage",
     "show_note",

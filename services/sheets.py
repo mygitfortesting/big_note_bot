@@ -3,7 +3,7 @@
 
 Здесь живут ВСЕ знания о структуре таблицы заметок:
 
-* служебные колонки ``ID`` (1-я), ``SOURCE`` (2-я), ``NAME`` (3-я) всегда
+* служебные колонки ``ID`` (1-я), ``SOURCE`` (2-я), ``TITLE`` (3-я) всегда
   стоят в начале, ``COMMENT`` — всегда последняя, ``SCREEN`` защищена от
   удаления (хранит ``file_id`` фото Telegram);
 * новые пользовательские колонки вставляются перед ``COMMENT`` и могут
@@ -27,15 +27,19 @@ logger = logging.getLogger(__name__)
 
 ID_HEADER = "ID"
 SOURCE_HEADER = "SOURCE"
-NAME_HEADER = "NAME"
+TITLE_HEADER = "TITLE"
 SCREEN_HEADER = "SCREEN"
 COMMENT_HEADER = "COMMENT"
+
+#: Старое имя колонки заголовка: принимается при чтении чужих листов и
+#: в хелперах, чтобы шаблоны, созданные до переименования, не ломались.
+LEGACY_NAME_HEADER = "NAME"
 
 #: Базовая шапка листа заметок (совпадает с config.NOTES_HEADERS).
 BASE_HEADERS: list[str] = [
     ID_HEADER,
     SOURCE_HEADER,
-    NAME_HEADER,
+    TITLE_HEADER,
     "DESCRIPTION",
     "URL",
     SCREEN_HEADER,
@@ -43,7 +47,7 @@ BASE_HEADERS: list[str] = [
 ]
 
 #: Колонки, которые обязаны стоять в начале, в этом самом порядке.
-LEADING_HEADERS: list[str] = [ID_HEADER, SOURCE_HEADER, NAME_HEADER]
+LEADING_HEADERS: list[str] = [ID_HEADER, SOURCE_HEADER, TITLE_HEADER]
 #: Позиции, которые колонка скриншотов занимает в базовой шапке.
 #: Берём именно из шапки, а не из кода: если в BASE_HEADERS SCREEN переставят,
 #: защита продолжит следовать за ней.
@@ -53,7 +57,7 @@ _SCREEN_BASE_POSITIONS: tuple[int, ...] = tuple(
     if header.upper() == SCREEN_HEADER
 )  # 1-based позиции: SCREEN — 6-я колонка базовой шапки
 
-#: Колонки, которые нельзя удалять. Обязательные ID/SOURCE/NAME защищены
+#: Колонки, которые нельзя удалять. Обязательные ID/SOURCE/TITLE защищены
 #: жёстко, скриншот — по имени и по штатной позиции (``screen_slot_index``).
 PROTECTED_HEADERS: set[str] = {*LEADING_HEADERS, SCREEN_HEADER}
 #: Колонки, которые нельзя переименовывать (у SCREEN служебное значение).
@@ -250,9 +254,17 @@ def source_column_index(headers: list[str]) -> int:
     return _index_of(headers, SOURCE_HEADER) or 2
 
 
-def name_column_index(headers: list[str]) -> int:
-    """Номер колонки NAME (1-based); по умолчанию C."""
-    return _index_of(headers, NAME_HEADER) or 3
+def title_column_index(headers: list[str]) -> int:
+    """
+    Номер колонки TITLE (1-based); по умолчанию C.
+
+    Листы, созданные до переименования, могут держать здесь ``NAME`` —
+    читаем и её, чтобы данные не «потерялись» из-за старых шапок.
+    """
+    found = _index_of(headers, TITLE_HEADER)
+    if found is None:
+        found = _index_of(headers, LEGACY_NAME_HEADER)
+    return found or 3
 
 
 def comment_column_index(headers: list[str]) -> int | None:
@@ -286,11 +298,11 @@ def screen_slot_index(headers: Sequence[str]) -> int | None:
 
 
 def _is_data_row(row: Sequence[str], headers: Sequence[str]) -> bool:
-    """Строка с ID и NAME — заметка, а не шапка, пустышка или карточка правил."""
-    name = cell(row, name_column_index(list(headers)) - 1).strip()
-    if not name or name == _PROMPT_ROW_NAME:
+    """Строка с ID и TITLE — заметка, а не шапка, пустышка или карточка правил."""
+    title = cell(row, title_column_index(list(headers)) - 1).strip()
+    if not title or title == _PROMPT_ROW_NAME:
         return False
-    if name.strip().lower() == NAME_HEADER.lower():
+    if title.strip().lower() in {TITLE_HEADER.lower(), LEGACY_NAME_HEADER.lower()}:
         return False
     return bool(cell(row, id_column_index(list(headers)) - 1).strip())
 
@@ -394,14 +406,14 @@ class NoteRepository(_SheetBound):
         return [seen[key] for key in sorted(seen)]
 
     def list_notes(self) -> list[Note]:
-        """Все заметки листа (с ID и NAME), порядок — как в таблице."""
+        """Все заметки листа (с ID и TITLE), порядок — как в таблице."""
         return self._all_notes()[0]
 
     def _all_notes(self) -> tuple[list[Note], list[str]]:
         """
         Заметки и шапка одним проходом, с дозаполнением пустых ID.
 
-        Ручная строка в Google Таблице (SOURCE/NAME есть, ID пуст) получает
+        Ручная строка в Google Таблице (SOURCE/TITLE есть, ID пуст) получает
         сгенерированный ID, который сразу записывается в ячейку — иначе
         такую заметку нельзя открыть по кнопке в Telegram.
         """
@@ -420,14 +432,14 @@ class NoteRepository(_SheetBound):
 
     def _ensure_missing_ids(self, values: list[list[str]], headers: list[str]) -> None:
         """
-        Дозаполняет пустые ID у строк с SOURCE или NAME (правки руками).
+        Дозаполняет пустые ID у строк с SOURCE или TITLE (правки руками).
 
         Работает по снимку ``values`` (строка 1 — шапка) и правит его же,
         чтобы вызывающий код сразу видел новые ID без повторного чтения.
         """
         id_col = id_column_index(headers)
         source_col = source_column_index(headers)
-        name_col = name_column_index(headers)
+        title_col = title_column_index(headers)
         existing = {
             cell(row, id_col - 1).strip()
             for row in values[1:]
@@ -438,7 +450,7 @@ class NoteRepository(_SheetBound):
             if cell(row, id_col - 1).strip():
                 continue
             if not (
-                cell(row, source_col - 1).strip() or cell(row, name_col - 1).strip()
+                cell(row, source_col - 1).strip() or cell(row, title_col - 1).strip()
             ):
                 continue
             new_id = generate_unique_id(existing)
@@ -452,7 +464,7 @@ class NoteRepository(_SheetBound):
             invalidate_cache(self._user_id)
 
     def list_by_source(self, source: str) -> list[Note]:
-        """Заметки одного источника, отсортированные по NAME без учёта регистра."""
+        """Заметки одного источника, отсортированные по TITLE без регистра."""
         wanted = (source or "").strip().lower()
         all_notes, headers = self._all_notes()
         if not headers:
@@ -463,17 +475,17 @@ class NoteRepository(_SheetBound):
             for note in all_notes
             if note.value(source_col).strip().lower() == wanted
         ]
-        name_col = name_column_index(headers)
-        notes.sort(key=lambda note: note.value(name_col).strip().lower())
+        title_col = title_column_index(headers)
+        notes.sort(key=lambda note: note.value(title_col).strip().lower())
         return notes
 
-    def find_by_name(self, query: str) -> list[Note]:
+    def find_by_title(self, query: str) -> list[Note]:
         """
-        Заметки по имени: точное совпадение NAME приоритетнее частичного.
+        Заметки по заголовку: точное совпадение TITLE приоритетнее частичного.
 
         Сравнение без учёта регистра и лишних пробелов. Если есть хотя бы
         одно точное совпадение — возвращаются только они, иначе — все
-        заметки, где запрос входит в NAME как подстрока.
+        заметки, где запрос входит в TITLE как подстрока.
         """
         wanted = (query or "").strip().lower()
         if not wanted:
@@ -481,16 +493,16 @@ class NoteRepository(_SheetBound):
         all_notes, headers = self._all_notes()
         if not headers:
             return []
-        name_col = name_column_index(headers)
+        title_col = title_column_index(headers)
         exact: list[Note] = []
         partial: list[Note] = []
         for note in all_notes:
-            name = note.value(name_col).strip().lower()
-            if not name:
+            title = note.value(title_col).strip().lower()
+            if not title:
                 continue
-            if name == wanted:
+            if title == wanted:
                 exact.append(note)
-            elif wanted in name:
+            elif wanted in title:
                 partial.append(note)
         return exact or partial
 
@@ -512,14 +524,14 @@ class NoteRepository(_SheetBound):
         found = self.locate(note_id)
         return found[0] if found else None
 
-    def display_name(self, note_id: str) -> str:
-        """NAME заметки; если пусто — «ID xxx»."""
+    def display_title(self, note_id: str) -> str:
+        """TITLE заметки; если пусто — «ID xxx»."""
         note = self.get(note_id)
         if note is None:
             return f"ID {note_id}"
         headers = self.headers()
-        name = note.field(headers, NAME_HEADER).strip()
-        return name or f"ID {note.note_id}"
+        title = note.value(title_column_index(headers)).strip()
+        return title or f"ID {note.note_id}"
 
     # --- запись ---
 
@@ -528,12 +540,12 @@ class NoteRepository(_SheetBound):
         existing = {note.note_id for note in self.list_notes() if note.note_id}
         return generate_unique_id(existing)
 
-    def create(self, source: str, name: str) -> str:
+    def create(self, source: str, title: str) -> str:
         """
         Создаёт заметку с новым ID и возвращает этот ID.
 
         Строка пишется во всю ширину шапки (пустые ячейки), чтобы не сдвинуть
-        колонки; после записи таблица сортируется по SOURCE и NAME.
+        колонки; после записи таблица сортируется по SOURCE и TITLE.
         """
         headers = self.headers()
         if not headers:  # пустой лист без шапки: восстанавливаем базовую
@@ -545,7 +557,7 @@ class NoteRepository(_SheetBound):
         row = [""] * len(headers)
         row[id_column_index(headers) - 1] = note_id
         row[source_column_index(headers) - 1] = (source or "").strip()
-        row[name_column_index(headers) - 1] = (name or "").strip()
+        row[title_column_index(headers) - 1] = (title or "").strip()
 
         self.sheet.append_row(row, value_input_option="RAW")
         invalidate_cache(self._user_id)
@@ -598,7 +610,7 @@ class NoteRepository(_SheetBound):
         Переименовывает источник во ВСЕХ его заметках и возвращает их число.
 
         Сравнение с ``old_source`` — без учёта регистра и лишних пробелов.
-        После записи лист пересортировывается (SOURCE -> NAME) и кэш
+        После записи лист пересортировывается (SOURCE -> TITLE) и кэш
         сбрасывается, поэтому новая группировка видна сразу.
         """
         name = (new_source or "").strip()
@@ -632,7 +644,7 @@ class NoteRepository(_SheetBound):
 
     def sort_notes(self) -> None:
         """
-        Сортирует данные листа: сначала по SOURCE, затем по NAME.
+        Сортирует данные листа: сначала по SOURCE, затем по TITLE.
 
         Обе сортировки — без учёта регистра; шапка (1-я строка) остаётся
         сверху. Пустые значения уходят в конец. Строки добиваются пустыми
@@ -645,13 +657,13 @@ class NoteRepository(_SheetBound):
             return
         width = len(headers)
         source_col = source_column_index(headers) - 1
-        name_col = name_column_index(headers) - 1
+        title_col = title_column_index(headers) - 1
         data = [pad_row(row, width) for row in values[1:]]
 
         def key(row: list[str]) -> tuple[int, str, int, str]:
             source = cell(row, source_col).strip().lower()
-            name = cell(row, name_col).strip().lower()
-            return (not source, source, not name, name)
+            title = cell(row, title_col).strip().lower()
+            return (not source, source, not title, title)
 
         data.sort(key=key)
         last_col = column_letter(width)
@@ -672,7 +684,7 @@ class ColumnService(_SheetBound):
 
     Инварианты шапки, которые нельзя нарушить:
 
-    * ``ID``, ``SOURCE``, ``NAME`` — первые три колонки в этом порядке;
+    * ``ID``, ``SOURCE``, ``TITLE`` — первые три колонки в этом порядке;
     * ``COMMENT`` — всегда последняя;
     * ``SCREEN`` нельзя удалить, но переименовать можно;
     * новые колонки вставляются перед ``COMMENT``.
@@ -695,7 +707,7 @@ class ColumnService(_SheetBound):
         """
         Номера колонок, которые нельзя удалить.
 
-        * ``ID``, ``SOURCE``, ``NAME`` — обязательные первые три;
+        * ``ID``, ``SOURCE``, ``TITLE`` — обязательные первые три;
         * ``COMMENT`` — последняя колонка (если она есть в шапке);
         * скриншот — по имени ``SCREEN`` или по штатной позиции, поэтому
           колонка остаётся защищённой и после переименования.
@@ -715,7 +727,7 @@ class ColumnService(_SheetBound):
         return protected
 
     def editable_columns(self) -> list[tuple[int, str]]:
-        """(номер, имя) колонок для переименования (кроме ID/SOURCE/NAME)."""
+        """(номер, имя) колонок для переименования (кроме ID/SOURCE/TITLE)."""
         return [
             (index, header)
             for index, header in enumerate(self.headers(), start=1)
@@ -769,7 +781,7 @@ class ColumnService(_SheetBound):
 
     def rename(self, col_index: int, new_name: str) -> None:
         """
-        Переименовывает колонку (ID, SOURCE и NAME защищены).
+        Переименовывает колонку (ID, SOURCE и TITLE защищены).
 
         Колонка скриншотов переименовывается свободно: смысл ячейки не меняется,
         а от удаления она всё равно защищена (``protected_columns``).
@@ -792,7 +804,7 @@ class ColumnService(_SheetBound):
 
         ``order`` — точная перестановка ``1..width``: без пропусков и дублей.
         Закреплённая структура проверяется здесь же: первые три позиции —
-        ``ID``, ``SOURCE``, ``NAME``, последняя — ``COMMENT``. Шапка и все
+        ``ID``, ``SOURCE``, ``TITLE``, последняя — ``COMMENT``. Шапка и все
         строки перезаписываются, кэш сбрасывается. Возвращает новую шапку.
         """
         data = self._all_values()
@@ -805,7 +817,7 @@ class ColumnService(_SheetBound):
         expected_leading = list(range(1, len(LEADING_HEADERS) + 1))
         if order[: len(expected_leading)] != expected_leading:
             raise ValueError(
-                "Columns ID, SOURCE and NAME are service columns and must stay "
+                "Columns ID, SOURCE and TITLE are service columns and must stay "
                 "first (in that order)."
             )
         if comment_column_index(headers) is not None and order[-1] != width:
@@ -826,10 +838,10 @@ class ColumnService(_SheetBound):
 
     def reorder_middle(self, order: list[int]) -> list[str]:
         """
-        Меняет порядок только изменяемых колонок (между NAME и COMMENT).
+        Меняет порядок только изменяемых колонок (между TITLE и COMMENT).
 
         ``order`` — точная перестановка номеров 1..N средних колонок,
-        1-based. Закреплённые ``ID``/``SOURCE``/``NAME`` и ``COMMENT``
+        1-based. Закреплённые ``ID``/``SOURCE``/``TITLE`` и ``COMMENT``
         подставляются программно, поэтому их нельзя ни сдвинуть, ни потерять.
         Вся запись листа живёт в :meth:`reorder`.
         """
@@ -851,7 +863,7 @@ class ColumnService(_SheetBound):
         return self.reorder(full_order)
 
     def middle_indexes(self, headers: list[str]) -> list[int]:
-        """Номера (1-based) изменяемых колонок — между NAME и COMMENT."""
+        """Номера (1-based) изменяемых колонок — между TITLE и COMMENT."""
         first_free = len(LEADING_HEADERS) + 1
         last_free = len(headers)
         if comment_column_index(headers) is not None:
@@ -865,11 +877,12 @@ __all__ = [
     "COMMENT_HEADER",
     "ID_HEADER",
     "LEADING_HEADERS",
-    "NAME_HEADER",
+    "LEGACY_NAME_HEADER",
     "PROTECTED_HEADERS",
     "RENAME_PROTECTED_HEADERS",
     "SCREEN_HEADER",
     "SOURCE_HEADER",
+    "TITLE_HEADER",
     "ColumnService",
     "NoteRepository",
     "SheetCache",
@@ -881,10 +894,10 @@ __all__ = [
     "id_column_index",
     "invalidate_cache",
     "is_empty",
-    "name_column_index",
     "normalize_headers",
     "pad_row",
     "screen_column_index",
     "screen_slot_index",
     "source_column_index",
+    "title_column_index",
 ]

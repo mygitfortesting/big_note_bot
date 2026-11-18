@@ -51,12 +51,12 @@ def test_columns_menu_lists_only_custom_columns(use_service) -> None:
 
     sent = callback.message.sent[-1]
     text = sent["text"]
-    # DESCRIPTION, URL, SCREEN — пользовательские (между NAME и COMMENT)
-    assert "1. <b>DESCRIPTION</b>" in text
-    assert "2. <b>URL</b>" in text
-    assert "3. <b>SCREEN</b>" in text
-    assert "1. <b>ID</b>" not in text
-    assert "Fixed:" in text
+    # DESCRIPTION, URL, SCREEN — пользовательские (между TITLE и COMMENT)
+    assert "1. <code>DESCRIPTION</code>" in text
+    assert "2. <code>URL</code>" in text
+    assert "3. <code>SCREEN</code>" in text
+    assert "1. <code>ID</code>" not in text
+    assert "Fixed:" not in text
 
     rows = sent["reply_markup"].inline_keyboard
     texts = [button.text for button in _flat(sent["reply_markup"])]
@@ -76,7 +76,7 @@ def test_columns_menu_lists_only_custom_columns(use_service) -> None:
     assert Cb.COL_REORDER in [button.callback_data for button in rows[-2]]
     assert "ID" not in texts
     assert "SOURCE" not in texts
-    assert "NAME" not in texts
+    assert "TITLE" not in texts
     assert "COMMENT" not in texts
     # Индексы колонок в шапке сохранены для меню действий.
     assert state.data["column_list"] == [4, 5, 6]
@@ -120,8 +120,10 @@ def test_change_order_full_flow(use_service) -> None:
     asyncio.run(columns_handler.cb_column_reorder(order_callback, state))
 
     prompt = order_callback.message.sent[-1]
-    assert "1. <b>DESCRIPTION</b>" in prompt["text"]
-    assert "2. <b>URL</b>" in prompt["text"]
+    assert "1. <code>DESCRIPTION</code>" in prompt["text"]
+    assert "2. <code>URL</code>" in prompt["text"]
+    # Готовая для копирования строка текущих номеров.
+    assert "<code>1 2 3</code>" in prompt["text"]
     datas = [button.callback_data for button in _flat(prompt["reply_markup"])]
     assert Cb.CANCEL_INPUT in datas
     assert state.state == columns_handler.ColumnStates.wait_order
@@ -130,10 +132,10 @@ def test_change_order_full_flow(use_service) -> None:
     asyncio.run(columns_handler.got_column_order(message, state))
 
     assert sheet.rows[0][3:6] == ["URL", "DESCRIPTION", "SCREEN"]
-    assert sheet.rows[0][:3] == ["ID", "SOURCE", "NAME"]
+    assert sheet.rows[0][:3] == ["ID", "SOURCE", "TITLE"]
     assert sheet.rows[0][-1] == "COMMENT"
     assert state.state is None
-    assert "1. <b>URL</b>" in message.sent[-1]["text"]
+    assert "1. <code>URL</code>" in message.sent[-1]["text"]
 
 
 def test_order_cancel_returns_to_columns(use_service) -> None:
@@ -151,8 +153,8 @@ def test_order_cancel_returns_to_columns(use_service) -> None:
     assert state.state is None
     sent = cancel_callback.message.sent[-1]
     assert sent["text"].startswith(buttons.COLUMNS_PROMPT)
-    assert "1. <b>DESCRIPTION</b>" in sent["text"]
-    assert sheet.rows[0][:3] == ["ID", "SOURCE", "NAME"]
+    assert "1. <code>DESCRIPTION</code>" in sent["text"]
+    assert sheet.rows[0][:3] == ["ID", "SOURCE", "TITLE"]
 
 
 def test_bad_order_keeps_user_in_order_state(use_service) -> None:
@@ -212,6 +214,6 @@ def test_new_column_gets_into_numbered_list(use_service) -> None:
 
     assert "CONTACT" in sheet.rows[0]
     body = message.sent[-1]["text"]
-    assert "4. <b>CONTACT</b>" in body
+    assert "4. <code>CONTACT</code>" in body
     assert body.startswith(buttons.COLUMNS_PROMPT)
     assert NOTES_HEADERS[0] in body
