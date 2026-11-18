@@ -28,6 +28,7 @@ MOVE_RIGHT = "➡️"
 RENAME_SOURCE = "✏️ Rename"
 DELETE_SOURCE = "🗑 Delete"
 CONFIRM_DELETE = "✅ Yes, delete"
+SHOW_NOTES = "📂 Show notes"
 
 # --- Тексты ---
 TABLE_LINK_PROMPT = (
@@ -70,7 +71,7 @@ SOURCES_PROMPT = "📂 <b>Notes by source</b>\n\nChoose a source:"
 SOURCES_MANAGE_PROMPT = (
     "🗂 <b>Sources</b>\n\nTap a number to rename or delete that source:"
 )
-SOURCE_MANAGE_PROMPT = "🗂 <b>{source}</b>\n\nNotes: <b>{count}</b>\n\nChoose an action:"
+SOURCE_MANAGE_PROMPT = "🗂 <b>{source}</b>\n\nChoose an action:"
 SOURCE_RENAME_PROMPT = (
     "✏️ <b>Rename source</b> <code>{source}</code>\n\n"
     "Write the new source name (notes: <b>{count}</b>):"

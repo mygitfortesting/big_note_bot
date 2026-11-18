@@ -411,12 +411,61 @@ def test_sources_menu_numbers_and_opens_actions(use_repo) -> None:
     manage_callback = _callback(Cb.src_manage(0))
     asyncio.run(notes_handler.cb_source_manage(manage_callback, state))
 
-    manage_markup = manage_callback.message.sent[-1]["reply_markup"]
-    datas = [
-        button.callback_data for row in manage_markup.inline_keyboard for button in row
-    ]
+    action = manage_callback.message.sent[-1]
+    assert "Notes:" not in action["text"]
+    assert "<b>Blog</b>" in action["text"]
+    assert "Choose an action:" in action["text"]
+    rows = action["reply_markup"].inline_keyboard
+    texts = [button.text for row in rows for button in row]
+    datas = [button.callback_data for row in rows for button in row]
+    assert texts[:2] == [buttons.SHOW_NOTES, buttons.ADD_NOTE]
+    assert Cb.src_show_notes(0) in datas
+    assert Cb.src_new_note(0) in datas
     assert Cb.src_rename(0) in datas
     assert Cb.src_del(0) in datas
+
+
+def test_source_actions_show_notes(use_repo) -> None:
+    """«📂 Show notes» открывает заметки выбранного источника."""
+    repo, _ = repo_for([note_row("1", "Blog", "a"), note_row("2", "Blog", "b")])
+    use_repo(repo)
+    state = FakeState()
+
+    asyncio.run(notes_handler.cb_manage_sources(_callback(Cb.MENU_SOURCES), state))
+    show_callback = _callback(Cb.src_show_notes(0))
+    asyncio.run(notes_handler.cb_source_show_notes(show_callback, state))
+
+    sent = show_callback.message.sent[-1]
+    assert "2 note(s)" in sent["text"]
+    datas = [
+        button.callback_data
+        for row in sent["reply_markup"].inline_keyboard
+        for button in row
+    ]
+    assert any(data.startswith(f"{Cb.NOTE_VIEW}:") for data in datas)
+
+
+def test_source_actions_add_note_skips_source_choice(use_repo) -> None:
+    """«➕ Add note» сразу просит NAME для этого источника."""
+    repo, sheet = repo_for([note_row("1", "Blog", "a")])
+    use_repo(repo)
+    state = FakeState()
+
+    asyncio.run(notes_handler.cb_manage_sources(_callback(Cb.MENU_SOURCES), state))
+    add_callback = _callback(Cb.src_new_note(0))
+    asyncio.run(notes_handler.cb_source_new_note(add_callback, state))
+
+    assert state.state == NoteStates.wait_name
+    assert state.data["source"] == "Blog"
+    prompt = add_callback.message.sent[-1]
+    assert "Source: <b>Blog</b>" in prompt["text"]
+
+    message = FakeMessage("Fresh", user_id=1)
+    asyncio.run(notes_handler.got_note_name(message, state))
+
+    data = rows_by_header(sheet)
+    assert [row[SOURCE_HEADER] for row in data] == ["Blog", "Blog"]
+    assert "Fresh" in [row[NAME_HEADER] for row in data]
 
 
 def test_sources_menu_rename_flow(use_repo) -> None:

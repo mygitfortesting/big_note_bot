@@ -153,9 +153,18 @@ def sources_manage(count: int) -> InlineKeyboardMarkup:
 
 
 def source_actions(index: int) -> InlineKeyboardMarkup:
-    """Действия над источником: переименовать или удалить."""
+    """
+    Действия над источником.
+
+    Первый ряд — заметки источника, второй — правка/удаление источника,
+    третий — возврат в список источников и главное меню.
+    """
     return _markup(
         [
+            [
+                _button(buttons.SHOW_NOTES, Cb.src_show_notes(index)),
+                _button(buttons.ADD_NOTE, Cb.src_new_note(index)),
+            ],
             [
                 _button(buttons.RENAME_SOURCE, Cb.src_rename(index)),
                 _button(buttons.DELETE_SOURCE, Cb.src_del(index)),
@@ -169,8 +178,10 @@ def source_delete_confirm(index: int) -> InlineKeyboardMarkup:
     """Подтверждение удаления источника: удалить или отменить."""
     return _markup(
         [
-            [_button(buttons.CONFIRM_DELETE, Cb.src_del_confirm(index))],
-            [_button(buttons.CANCEL, Cb.src_manage(index))],
+            [
+                _button(buttons.CONFIRM_DELETE, Cb.src_del_confirm(index)),
+                _button(buttons.CANCEL, Cb.src_manage(index)),
+            ],
         ]
     )
 

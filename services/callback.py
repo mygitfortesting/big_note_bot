@@ -56,6 +56,8 @@ class Cb:
     SRC_RENAME = "src_rename"
     SRC_DEL = "src_del"
     SRC_DEL_CONFIRM = "src_del_confirm"
+    SRC_SHOW_NOTES = "src_show_notes"
+    SRC_NEW_NOTE = "src_new_note"
 
     # --- Кнопки с параметрами ---
     SRC_SELECT = "src_select"
@@ -127,6 +129,16 @@ class Cb:
     def src_del_confirm(cls, index: int) -> str:
         """Подтверждённое удаление источника ``index`` (0-based)."""
         return cls._join(cls.SRC_DEL_CONFIRM, index)
+
+    @classmethod
+    def src_show_notes(cls, index: int) -> str:
+        """Открыть список заметок источника ``index`` (0-based)."""
+        return cls._join(cls.SRC_SHOW_NOTES, index)
+
+    @classmethod
+    def src_new_note(cls, index: int) -> str:
+        """Сразу создать заметку для источника ``index`` (0-based)."""
+        return cls._join(cls.SRC_NEW_NOTE, index)
 
     @classmethod
     def parse_source_index(cls, data: str, prefix: str) -> int | None:

@@ -653,12 +653,49 @@ async def cb_source_manage(callback: types.CallbackQuery, state: FSMContext) -> 
     saved = await _saved_source(callback, state, index)
     if saved is None:
         return
-    source, count = saved
+    source, _ = saved
     await show_main_menu(
         callback,
-        buttons.SOURCE_MANAGE_PROMPT.format(source=escape_html(source), count=count),
+        buttons.SOURCE_MANAGE_PROMPT.format(source=escape_html(source)),
         keyboards.source_actions(index),
     )
+
+
+@router.callback_query(F.data.startswith(f"{Cb.SRC_SHOW_NOTES}:"))
+async def cb_source_show_notes(
+    callback: types.CallbackQuery, state: FSMContext
+) -> None:
+    """«📂 Show notes»: заметки выбранного источника."""
+    await ack_callback(callback)
+    index = Cb.parse_source_index(callback.data or "", Cb.SRC_SHOW_NOTES)
+    if index is None:
+        return
+    saved = await _saved_source(callback, state, index)
+    if saved is None:
+        return
+    source, _ = saved
+    repo = _repo(callback)
+    if repo is None:
+        return
+    try:
+        notes = await asyncio.to_thread(repo.list_by_source, source)
+        await _send_notes_list(callback, repo, source, notes)
+    except Exception as e:
+        await send_error_message(callback, e)
+
+
+@router.callback_query(F.data.startswith(f"{Cb.SRC_NEW_NOTE}:"))
+async def cb_source_new_note(callback: types.CallbackQuery, state: FSMContext) -> None:
+    """«➕ Add note»: сразу к имени заметки для выбранного источника."""
+    await ack_callback(callback)
+    index = Cb.parse_source_index(callback.data or "", Cb.SRC_NEW_NOTE)
+    if index is None:
+        return
+    saved = await _saved_source(callback, state, index)
+    if saved is None:
+        return
+    source, _ = saved
+    await ask_note_name(callback, state, source)
 
 
 @router.callback_query(F.data.startswith(f"{Cb.SRC_RENAME}:"))
