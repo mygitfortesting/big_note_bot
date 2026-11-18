@@ -72,7 +72,7 @@ SOURCES_MANAGE_PROMPT = (
 )
 SOURCE_MANAGE_PROMPT = "🗂 <b>{source}</b>\n\nNotes: <b>{count}</b>\n\nChoose an action:"
 SOURCE_RENAME_PROMPT = (
-    "✏️ <b>Rename source</b> <b>{source}</b>\n\n"
+    "✏️ <b>Rename source</b> <code>{source}</code>\n\n"
     "Write the new source name (notes: <b>{count}</b>):"
 )
 SOURCE_RENAMED = "✅ Source renamed. Updated notes: <b>{count}</b>."

@@ -156,8 +156,10 @@ def source_actions(index: int) -> InlineKeyboardMarkup:
     """Действия над источником: переименовать или удалить."""
     return _markup(
         [
-            [_button(buttons.RENAME_SOURCE, Cb.src_rename(index))],
-            [_button(buttons.DELETE_SOURCE, Cb.src_del(index))],
+            [
+                _button(buttons.RENAME_SOURCE, Cb.src_rename(index)),
+                _button(buttons.DELETE_SOURCE, Cb.src_del(index)),
+            ],
             [_button(buttons.BACK, Cb.MENU_SOURCES), to_main_row()],
         ]
     )
