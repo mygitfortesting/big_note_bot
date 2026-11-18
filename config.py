@@ -154,7 +154,11 @@ def get_spreadsheet() -> Any:
 
 def get_table_url() -> str:
     """Ссылка на Google-таблицу для кнопки «Open Table»."""
-    return (os.getenv("SPREADSHEET_URL") or "").strip()
+    url = (os.getenv("SPREADSHEET_URL") or "").strip()
+    if url:
+        return url
+    sheet_id = (os.getenv("SPREADSHEET_ID") or "").strip()
+    return f"https://google.com{sheet_id}" if sheet_id else ""
 
 
 def _ensure_sheet(title: str, headers: list[str] | None = None) -> _Worksheet:
