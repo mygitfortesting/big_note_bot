@@ -207,6 +207,77 @@ def test_empty_row_gets_no_id() -> None:
     assert sheet.rows[1][0] == ""
 
 
+# --- Пустой источник-болванка ---
+
+
+def test_add_source_creates_blank_row_without_id() -> None:
+    """add_source создаёт строку с одним SOURCE: 0 заметок и без ID."""
+    repo, sheet = repo_for([])
+
+    assert repo.add_source("Podcast") is True
+
+    assert repo.list_sources_with_counts() == [("Podcast", 0)]
+    assert repo.list_sources() == ["Podcast"]
+    assert repo.list_notes() == []
+    assert sheet.rows[1][0] == ""  # ID болванке не выдан
+    assert sheet.rows[1][1] == "Podcast"
+    assert sheet.rows[1][2] == ""
+
+
+def test_add_source_is_case_insensitive_and_idempotent() -> None:
+    """Повторное добавление (в другом регистре) ничего не меняет."""
+    repo, sheet = repo_for([note_row("1", "Blog", "a")])
+
+    assert repo.add_source("blog") is False
+
+    assert len(sheet.rows) == 2
+    assert repo.list_sources_with_counts() == [("Blog", 1)]
+
+
+def test_add_source_rejects_empty_name() -> None:
+    repo, _ = repo_for([])
+
+    with pytest.raises(ValueError):
+        repo.add_source("   ")
+
+
+def test_create_fills_blank_source_row() -> None:
+    """create заполняет строку-болванку вместо добавления дубликата."""
+    repo, sheet = repo_for([])
+    repo.add_source("Podcast")
+
+    note_id = repo.create("podcast", "First")
+
+    assert len(sheet.rows) == 2  # шапка + одна строка
+    assert sheet.rows[1][0] == note_id
+    assert sheet.rows[1][1] == "podcast"
+    assert sheet.rows[1][2] == "First"
+    assert repo.list_sources_with_counts() == [("podcast", 1)]
+    assert [note.note_id for note in repo.list_by_source("Podcast")] == [note_id]
+
+
+def test_blank_source_is_not_listed_as_note() -> None:
+    """list_by_source пропускает болванку и видит только реальные заметки."""
+    repo, _ = repo_for([note_row("1", "Blog", "a")])
+    repo.add_source("Blog")
+
+    notes = repo.list_by_source("Blog")
+
+    assert [note.note_id for note in notes] == ["1"]
+
+
+def test_rename_and_delete_source_include_blank_rows() -> None:
+    """Болванка переименовывается и удаляется вместе с источником."""
+    repo, _ = repo_for([])
+    repo.add_source("Podcast")
+
+    assert repo.rename_source("podcast", "Radio") == 0
+    assert repo.list_sources() == ["Radio"]
+
+    assert repo.delete_source("Radio") == 0
+    assert repo.list_sources() == []
+
+
 # --- Переименование и удаление источника ---
 
 

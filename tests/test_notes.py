@@ -14,6 +14,7 @@ from services import buttons, keyboards
 from services.callback import Cb
 from services.sheets import (
     COMMENT_HEADER,
+    ID_HEADER,
     SCREEN_HEADER,
     SOURCE_HEADER,
     TITLE_HEADER,
@@ -105,7 +106,7 @@ def test_card_fields_separated_by_blank_line() -> None:
 
     blocks = ctx.card_text().split("\n\n")
 
-    assert len(blocks) == 4
+    assert len(blocks) == 5
     assert blocks[0].startswith("<b>SOURCE:</b>")
     assert "\n" not in ctx.card_text().replace("\n\n", "")
 
@@ -332,8 +333,8 @@ def test_select_source_then_name_creates_note(use_repo) -> None:
     assert state.state is None
 
 
-def test_new_source_asks_for_first_note_not_empty_row(use_repo) -> None:
-    """«🗂 Add source»: после имени источника бот сразу просит имя заметки."""
+def test_new_source_is_added_as_blank_source(use_repo) -> None:
+    """«🗂 Add source»: источник сохраняется сразу, без заметки и с 0."""
     repo, sheet = repo_for([])
     use_repo(repo)
     message = FakeMessage("Instagram", user_id=1)
@@ -342,17 +343,24 @@ def test_new_source_asks_for_first_note_not_empty_row(use_repo) -> None:
 
     asyncio.run(notes_handler.got_new_source(message, state))
 
-    assert state.state == NoteStates.wait_title
-    assert state.data["source"] == "Instagram"
-    assert sheet.rows == [NOTES_HEADERS]  # пустая строка не появилась
+    assert state.state is None
+    assert any("Source added" in item["text"] for item in message.sent)
+    # Шапка + строка-болванка: только SOURCE, без ID и TITLE.
+    assert len(sheet.rows) == 2
+    assert sheet.rows[1][0] == ""  # ID болванке не выдан
+    assert sheet.rows[1][1] == "Instagram"
+    assert sheet.rows[1][2] == ""
+    assert repo.list_sources_with_counts() == [("Instagram", 0)]
+    assert repo.list_notes() == []
 
-    name_message = FakeMessage("My first post", user_id=1)
-    asyncio.run(notes_handler.got_note_title(name_message, state))
+    note_id = repo.create("Instagram", "My first post")
 
     data = rows_by_header(sheet)
-    assert len(data) == 1
+    assert len(data) == 1  # та же строка, без дубликата
+    assert data[0][ID_HEADER] == note_id
     assert data[0][SOURCE_HEADER] == "Instagram"
     assert data[0][TITLE_HEADER] == "My first post"
+    assert repo.list_sources_with_counts() == [("Instagram", 1)]
 
 
 def test_edit_field_accepts_any_column_except_id_and_screen() -> None:

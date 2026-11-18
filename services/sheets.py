@@ -31,10 +31,6 @@ TITLE_HEADER = "TITLE"
 SCREEN_HEADER = "SCREEN"
 COMMENT_HEADER = "COMMENT"
 
-#: Старое имя колонки заголовка: принимается при чтении чужих листов и
-#: в хелперах, чтобы шаблоны, созданные до переименования, не ломались.
-LEGACY_NAME_HEADER = "NAME"
-
 #: Базовая шапка листа заметок (совпадает с config.NOTES_HEADERS).
 BASE_HEADERS: list[str] = [
     ID_HEADER,
@@ -255,16 +251,8 @@ def source_column_index(headers: list[str]) -> int:
 
 
 def title_column_index(headers: list[str]) -> int:
-    """
-    Номер колонки TITLE (1-based); по умолчанию C.
-
-    Листы, созданные до переименования, могут держать здесь ``NAME`` —
-    читаем и её, чтобы данные не «потерялись» из-за старых шапок.
-    """
-    found = _index_of(headers, TITLE_HEADER)
-    if found is None:
-        found = _index_of(headers, LEGACY_NAME_HEADER)
-    return found or 3
+    """Номер колонки TITLE (1-based); по умолчанию C."""
+    return _index_of(headers, TITLE_HEADER) or 3
 
 
 def comment_column_index(headers: list[str]) -> int | None:
@@ -302,7 +290,7 @@ def _is_data_row(row: Sequence[str], headers: Sequence[str]) -> bool:
     title = cell(row, title_column_index(list(headers)) - 1).strip()
     if not title or title == _PROMPT_ROW_NAME:
         return False
-    if title.strip().lower() in {TITLE_HEADER.lower(), LEGACY_NAME_HEADER.lower()}:
+    if title.strip().lower() == TITLE_HEADER.lower():
         return False
     return bool(cell(row, id_column_index(list(headers)) - 1).strip())
 
@@ -389,12 +377,18 @@ class NoteRepository(_SheetBound):
         return [source for source, _ in self.list_sources_with_counts()]
 
     def list_sources_with_counts(self) -> list[tuple[str, int]]:
-        """(источник, количество заметок) по алфавиту без учёта регистра."""
+        """
+        (источник, количество заметок) по алфавиту без учёта регистра.
+
+        Строка-болванка (только SOURCE, без TITLE) даёт источник с нулём:
+        он уже существует и ждёт первой заметки.
+        """
         values = self._all_values()
         headers = headers_of(values)
         if not headers:
             return []
         source_col = source_column_index(headers) - 1
+        title_col = title_column_index(headers) - 1
         seen: dict[str, tuple[str, int]] = {}
         for row in values[1:]:
             source = cell(row, source_col).strip()
@@ -402,7 +396,9 @@ class NoteRepository(_SheetBound):
                 continue
             key = source.lower()
             name, count = seen.get(key, (source, 0))
-            seen[key] = (name, count + 1)
+            if cell(row, title_col).strip():
+                count += 1
+            seen[key] = (name, count)
         return [seen[key] for key in sorted(seen)]
 
     def list_notes(self) -> list[Note]:
@@ -432,13 +428,15 @@ class NoteRepository(_SheetBound):
 
     def _ensure_missing_ids(self, values: list[list[str]], headers: list[str]) -> None:
         """
-        Дозаполняет пустые ID у строк с SOURCE или TITLE (правки руками).
+        Дозаполняет пустые ID у строк с TITLE (правки руками).
+
+        Строки-болванки (есть только SOURCE, TITLE пуст) остаются без ID:
+        это не заметка, а ждущий источник.
 
         Работает по снимку ``values`` (строка 1 — шапка) и правит его же,
         чтобы вызывающий код сразу видел новые ID без повторного чтения.
         """
         id_col = id_column_index(headers)
-        source_col = source_column_index(headers)
         title_col = title_column_index(headers)
         existing = {
             cell(row, id_col - 1).strip()
@@ -449,9 +447,7 @@ class NoteRepository(_SheetBound):
         for row_index, row in enumerate(values[1:], start=2):
             if cell(row, id_col - 1).strip():
                 continue
-            if not (
-                cell(row, source_col - 1).strip() or cell(row, title_col - 1).strip()
-            ):
+            if not cell(row, title_col - 1).strip():
                 continue
             new_id = generate_unique_id(existing)
             existing.add(new_id)
@@ -470,12 +466,13 @@ class NoteRepository(_SheetBound):
         if not headers:
             return []
         source_col = source_column_index(headers)
+        title_col = title_column_index(headers)
         notes = [
             note
             for note in all_notes
             if note.value(source_col).strip().lower() == wanted
+            and note.value(title_col).strip()
         ]
-        title_col = title_column_index(headers)
         notes.sort(key=lambda note: note.value(title_col).strip().lower())
         return notes
 
@@ -544,8 +541,10 @@ class NoteRepository(_SheetBound):
         """
         Создаёт заметку с новым ID и возвращает этот ID.
 
-        Строка пишется во всю ширину шапки (пустые ячейки), чтобы не сдвинуть
-        колонки; после записи таблица сортируется по SOURCE и TITLE.
+        Если для источника уже есть строка-болванка (только SOURCE, TITLE пуст),
+        она заполняется на месте — дубликат источника не появляется. Иначе
+        строка дописывается в конец во всю ширину шапки; в обоих случаях
+        лист затем сортируется по SOURCE и TITLE.
         """
         headers = self.headers()
         if not headers:  # пустой лист без шапки: восстанавливаем базовую
@@ -553,16 +552,70 @@ class NoteRepository(_SheetBound):
             self.sheet.insert_row(headers, index=1, value_input_option="RAW")
             invalidate_cache(self._user_id)
         note_id = self.new_id()
+        source_name = (source or "").strip()
+        title_name = (title or "").strip()
+
+        blank_row = self._blank_source_row(headers, source_name)
+        if blank_row is not None:
+            id_col = id_column_index(headers)
+            source_col = source_column_index(headers)
+            title_col = title_column_index(headers)
+            self.sheet.update_cell(blank_row, id_col, note_id)
+            self.sheet.update_cell(blank_row, source_col, source_name)
+            self.sheet.update_cell(blank_row, title_col, title_name)
+            invalidate_cache(self._user_id)
+            self.sort_notes()
+            return note_id
 
         row = [""] * len(headers)
         row[id_column_index(headers) - 1] = note_id
-        row[source_column_index(headers) - 1] = (source or "").strip()
-        row[title_column_index(headers) - 1] = (title or "").strip()
+        row[source_column_index(headers) - 1] = source_name
+        row[title_column_index(headers) - 1] = title_name
 
         self.sheet.append_row(row, value_input_option="RAW")
         invalidate_cache(self._user_id)
         self.sort_notes()
         return note_id
+
+    def _blank_source_row(self, headers: list[str], source: str) -> int | None:
+        """Номер строки-болванки этого источника (SOURCE есть, TITLE пуст)."""
+        wanted = source.strip().lower()
+        if not wanted:
+            return None
+        source_col = source_column_index(headers) - 1
+        title_col = title_column_index(headers) - 1
+        for row_index, row in enumerate(self._all_values()[1:], start=2):
+            if cell(row, title_col).strip():
+                continue
+            if cell(row, source_col).strip().lower() == wanted:
+                return row_index
+        return None
+
+    def add_source(self, source: str) -> bool:
+        """
+        Добавляет пустой источник (строку с одним SOURCE) и возвращает True.
+
+        Если такой источник уже есть (с заметками или без), ничего не делает
+        и возвращает False. ID и TITLE у болванки остаются пустыми: ID
+        появится вместе с первой заметкой.
+        """
+        name = (source or "").strip()
+        if not name:
+            raise ValueError("Source name must not be empty.")
+        wanted = name.lower()
+        if any(item.strip().lower() == wanted for item in self.list_sources()):
+            return False
+        headers = self.headers()
+        if not headers:  # пустой лист без шапки: восстанавливаем базовую
+            headers = list(BASE_HEADERS)
+            self.sheet.insert_row(headers, index=1, value_input_option="RAW")
+            invalidate_cache(self._user_id)
+        row = [""] * len(headers)
+        row[source_column_index(headers) - 1] = name
+        self.sheet.append_row(row, value_input_option="RAW")
+        invalidate_cache(self._user_id)
+        self.sort_notes()
+        return True
 
     def update_cell(self, note_id: str, header: str, value: str) -> None:
         """Записывает значение в колонку с именем ``header`` у заметки ``note_id``."""
@@ -607,11 +660,12 @@ class NoteRepository(_SheetBound):
 
     def rename_source(self, old_source: str, new_source: str) -> int:
         """
-        Переименовывает источник во ВСЕХ его заметках и возвращает их число.
+        Переименовывает источник во ВСЕХ его строках и возвращает их число.
 
-        Сравнение с ``old_source`` — без учёта регистра и лишних пробелов.
-        После записи лист пересортировывается (SOURCE -> TITLE) и кэш
-        сбрасывается, поэтому новая группировка видна сразу.
+        Строки-болванки переименовываются вместе с заметками (они тоже
+        принадлежат источнику, иначе после переименования появился бы дубль).
+        Сравнение с ``old_source`` — без учёта регистра и лишних пробелов;
+        после записи лист пересортировывается (SOURCE -> TITLE).
         """
         name = (new_source or "").strip()
         if not name:
@@ -621,15 +675,23 @@ class NoteRepository(_SheetBound):
             return 0
         headers = self.headers()
         source_col = source_column_index(headers)
+        title_col = title_column_index(headers)
+        values = self._all_values()
+        notes = sum(
+            1
+            for row_index in row_indexes
+            if row_index - 1 < len(values)
+            and cell(values[row_index - 1], title_col - 1).strip()
+        )
         for row_index in row_indexes:
             self.sheet.update_cell(row_index, source_col, name)
         invalidate_cache(self._user_id)
         self.sort_notes()
-        return len(row_indexes)
+        return notes
 
     def delete_source(self, source: str) -> int:
         """
-        Удаляет все заметки источника и возвращает их число.
+        Удаляет источник целиком (включая болванку) и возвращает число заметок.
 
         Строки удаляются снизу вверх: при удалении сверху сдвигаются индексы
         ещё не удалённых строк, и чужие заметки уехали бы вместе с ними.
@@ -637,10 +699,19 @@ class NoteRepository(_SheetBound):
         row_indexes = self._source_rows(source)
         if not row_indexes:
             return 0
+        headers = self.headers()
+        title_col = title_column_index(headers)
+        values = self._all_values()
+        notes = sum(
+            1
+            for row_index in row_indexes
+            if row_index - 1 < len(values)
+            and cell(values[row_index - 1], title_col - 1).strip()
+        )
         for row_index in reversed(row_indexes):
             self.sheet.delete_rows(row_index)
         invalidate_cache(self._user_id)
-        return len(row_indexes)
+        return notes
 
     def sort_notes(self) -> None:
         """
@@ -877,7 +948,6 @@ __all__ = [
     "COMMENT_HEADER",
     "ID_HEADER",
     "LEADING_HEADERS",
-    "LEGACY_NAME_HEADER",
     "PROTECTED_HEADERS",
     "RENAME_PROTECTED_HEADERS",
     "SCREEN_HEADER",

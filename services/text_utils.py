@@ -17,6 +17,8 @@ MESSAGE_LIMIT = 4096
 _HIDDEN_CARD_HEADERS = {"ID", "SCREEN"}
 _EMPTY_VALUES = {"", "—", "-"}
 
+CARD_BLOCK_SEPARATOR = "\n\n"
+
 
 def escape_html(text: str) -> str:
     """
@@ -68,6 +70,10 @@ def _is_filled(value: str | None) -> bool:
     return (value or "").strip() not in _EMPTY_VALUES
 
 
+#: Сколько «пустых» символов Брайля добавлять в конец карточки.
+CARD_MIN_WIDTH_SYMBOLS = 26
+
+
 def note_card_lines(
     headers: Sequence[str],
     values: Sequence[str],
@@ -81,7 +87,8 @@ def note_card_lines(
     (ID нужен для кнопок, а скриншот отправляется отдельным фото).
 
     Возвращает список блоков с HTML-разметкой; хендлер склеивает их через
-    пустую строку (``"\n\n"``), чтобы поля карточки не слипались.
+    пустую строку (``"\n\n"``), чтобы поля карточки не слипались. Последний
+    элемент — отступ из символов Брайля: он держит ширину пузыря.
     """
     lines: list[str] = []
     for index, header in enumerate(headers):
@@ -95,11 +102,11 @@ def note_card_lines(
         lines.append(f"<b>{label}:</b> {content}")
     if title:
         lines.insert(0, f"<b>{escape_html(title)}</b>")
+    # Пустые символы Брайля: Telegram считает их шириной, поэтому пузырь
+    # сообщения не сжимается и ряд кнопок под карточкой не обрезается.
+    # Держим их отдельным блоком, чтобы не склеиваться с последним полем.
+    lines.append("\u2800" * CARD_MIN_WIDTH_SYMBOLS)
     return lines
-
-
-#: Разделитель блоков карточки: между заполненными полями — пустая строка.
-CARD_BLOCK_SEPARATOR = "\n\n"
 
 
 def note_card_text(
@@ -107,5 +114,5 @@ def note_card_text(
     values: Sequence[str],
     title: str | None = None,
 ) -> str:
-    """Готовая карточка заметки: блоки разделены пустой строкой."""
+    """Готовая карточка: блоки через пустую строку, в конце — отступ."""
     return CARD_BLOCK_SEPARATOR.join(note_card_lines(headers, values, title))

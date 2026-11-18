@@ -229,14 +229,31 @@ async def ask_note_title(
 @router.message(NoteStates.wait_source, F.text)
 async def got_new_source(message: types.Message, state: FSMContext) -> None:
     """
-    Получили имя источника: сразу переходим к названию первой заметки —
-    в таблицу не должна попасть пустая строка без заметки.
+    Получили имя источника: сохраняем его как пустой источник-болванку.
+
+    ID и TITLE появятся вместе с первой заметкой (``repo.create`` заполнит
+    эту же строку), а сейчас пользователь видит источник в списке.
     """
     source = (message.text or "").strip()
     if not source:
         await status_message(message, "⚠️ Source name must not be empty.")
         return
-    await ask_note_title(message, state, source)
+    await state.clear()
+    repo = _repo(message)
+    if repo is None:
+        return
+    try:
+        added = await asyncio.to_thread(repo.add_source, source)
+    except ValueError:
+        await status_message(message, "⚠️ Source name must not be empty.")
+        return
+    except Exception as e:
+        await send_error_message(message, e)
+        return
+    template = buttons.SOURCE_ADDED if added else buttons.SOURCE_EXISTS
+    text = template.format(source=escape_html(source))
+    await status_message(message, text)
+    await show_sources_manage(message, state)
 
 
 @router.message(NoteStates.wait_title, F.text)

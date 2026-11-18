@@ -19,7 +19,7 @@ CANCEL = "✖️ Cancel"
 NEW_SOURCE = "➕ New source"
 EDIT_FIELD = "✏️ Edit field"
 PHOTO = "🖼 Add/Replace screenshot"
-DELETE_NOTE = "🗑 Delete note"
+DELETE_NOTE = "🗑 Delete"
 DELETE_COLUMN = "🗑 Delete column"
 RENAME_COLUMN = "✏️ Rename column"
 ADD_COLUMN = "➕ Add column"
@@ -84,6 +84,8 @@ SOURCE_DELETE_CONFIRM = (
 )
 SOURCE_DELETED = "🗑 Source deleted. Removed notes: <b>{count}</b>."
 SOURCE_LOST = "⚠️ This source no longer exists. Open 🗂 Sources again."
+SOURCE_ADDED = "✅ Source added: <code>{source}</code>"
+SOURCE_EXISTS = "✅ Source already exists: <code>{source}</code>"
 NO_SOURCES = (
     "📂 <b>Notes by source</b>\n\nNo sources yet. Add one with <b>➕ Add note</b>."
 )
