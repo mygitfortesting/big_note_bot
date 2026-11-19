@@ -284,8 +284,7 @@ def _notes_digest(repo: NoteRepository, notes: list[Note]) -> list[str]:
     """Готовые карточки заметок: только поля, без ID/SCREEN и распорок."""
     headers = repo.headers()
     return [
-        "\n\n".join(note_card_lines(headers, note.values, spacer=False))
-        for note in notes
+        "\n".join(note_card_lines(headers, note.values, spacer=False)) for note in notes
     ]
 
 

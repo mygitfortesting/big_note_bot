@@ -148,7 +148,7 @@ def note_card_text(
 
 
 #: Визуальный разделитель между заметками в длинном списке.
-NOTE_SEPARATOR = "\n\n━━━━━━━━━━\n\n"
+NOTE_SEPARATOR = "\n━━━━━━━━━━\n"
 
 
 def notes_digest_text(source: str, count: int, cards: Sequence[str]) -> str:

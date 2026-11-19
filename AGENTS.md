@@ -17,6 +17,7 @@ Telegram-бот заметок (`Python 3.13`, `aiogram 3.x`, `gspread`, `OpenAI
 - `services/buttons.py` / `services/keyboards.py` — все тексты и `InlineKeyboardMarkup`.
 - `services/telegram_io.py` — единый выход в Telegram (`ack_callback`, `alert`, `hide_callback_message`, `show_main_menu`, `send_parts`, `status_message`, `send_error_message`).
 - `services/text_utils.py` — `escape_html`, `split_messages`, `note_card_lines`, `with_min_width`. Ширина пузыря: `with_min_width` считает самую длинную строку без HTML-тегов (`re.sub(r"<[^>]+>", "")`); если она не короче `WIDTH_SPACER` (`MIN_BUBBLE_WIDTH`), текст возвращается без распорки, иначе распорка добавляется через ОДИН `\n` (никаких `\n\n` внизу). Вызов идемпотентен: повторная распорка не добавляется. Шаблоны кнопок в `services/buttons.py` не заканчиваются переводом строки.
+- **Сводка источника:** `notes_digest_text` ставит черту `━━━━━━━━━━` через одиночные `\n` (`NOTE_SEPARATOR = "\n━━━━━━━━━━\n"`), а `_notes_digest` склеивает поля карточки в сводке через `"\n".join(...)` — компактный блок без пустых строк. В одиночной карточке (`NoteContext.card_text`) поля по-прежнему разделяются пустой строкой (`\n\n`).
 - `handlers/notes_handler.py` / `handlers/columns_handler.py` — диалоги, FSM и вызовы репозиториев через `asyncio.to_thread`.
 
 ## 3. BUSINESS & SAFETY RULES

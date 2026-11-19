@@ -174,8 +174,11 @@ def test_source_actions_show_all_notes(use_repo) -> None:
     text = sent["text"]
     assert text.startswith("📂 <b>Blog</b> — 2 note(s):")
     assert "━━━━━━━━━━" in text
-    assert "<b>TITLE:</b> First" in text
-    assert "<b>DESCRIPTION:</b> Desc one" in text
+    assert text.startswith("📂 <b>Blog</b> — 2 note(s):\n━━━━━━━━━━\n")
+    assert text.endswith("<b>COMMENT:</b> Note two")
+    assert "\n\n" not in text  # сводка компактная: без пустых строк
+    assert "<b>TITLE:</b> First\n<b>DESCRIPTION:</b> Desc one" in text
+    assert "<b>TITLE:</b> Second\n<b>COMMENT:</b> Note two" in text
     assert "<b>TITLE:</b> Second" in text
     assert "<b>COMMENT:</b> Note two" in text
     assert "ID" not in text and SCREEN_HEADER not in text
