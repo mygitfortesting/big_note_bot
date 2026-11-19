@@ -5,6 +5,8 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Callable
 
+import pytest
+
 from config import NOTES_HEADERS
 from handlers import notes_handler
 from handlers.notes_handler import NoteContext
@@ -19,6 +21,7 @@ from services.sheets import (
     NoteRepository,
 )
 from services.text_utils import (
+    MIN_BUBBLE_WIDTH,
     WIDTH_SPACER,
     note_card_lines,
     split_messages,
@@ -46,51 +49,50 @@ def _make_context(headers: list[str] | None = None, **fields: str) -> NoteContex
 # --- Карточка: только заполненные поля ---
 
 
-def test_card_outputs_only_filled_fields() -> None:
-    """
-    Пустые колонки в карточке пропускаются: у источника видны только его поля.
-
-    Заметка «Blog» заполнена в DESCRIPTION/COMMENT, а URL/SCREEN пусты —
-    в тексте не должно быть ни URL, ни SCREEN, ни ID.
-    """
-    values = ["id1", "Blog", "Post", "Desc", "", "", "Nice"]
-    text = "\n".join(note_card_lines(NOTES_HEADERS, values))
-
-    assert "SOURCE:" in text
-    assert "TITLE:" in text
-    assert "DESCRIPTION:" in text
-    assert "COMMENT:" in text
-    assert "URL" not in text
-    assert SCREEN_HEADER not in text
-    assert "<b>ID:</b>" not in text
-
-
-def test_card_skips_placeholders() -> None:
-    """Прочерки и пустые ячейки в карточку не попадают."""
-    values = ["id1", "Blog", "Post", "-", "—", "", ""]
-    text = "\n".join(note_card_lines(NOTES_HEADERS, values))
-
-    assert "DESCRIPTION" not in text
-    assert "URL" not in text
-
-
-def test_card_escapes_html() -> None:
-    """HTML из таблицы экранируется и не ломает разметку Telegram."""
-    values = ["id1", "Blog", "<script>", "", "", "", ""]
-    text = "\n".join(note_card_lines(NOTES_HEADERS, values))
-
-    assert "&lt;script&gt;" in text
-    assert "<script>" not in text
-
-
-def test_card_shows_custom_columns() -> None:
-    """Пользовательская колонка видна, служебная COMMENT — нет."""
-    headers = [*NOTES_HEADERS[:-1], "PRICE", COMMENT_HEADER]
-    values = ["id1", "Shop", "Item", "", "", "", "10$", ""]
+@pytest.mark.parametrize(
+    ("headers", "values", "expected", "absent"),
+    [
+        pytest.param(
+            NOTES_HEADERS,
+            ["id1", "Blog", "Post", "Desc", "", "", "Nice"],
+            ["SOURCE:", "TITLE:", "DESCRIPTION:", "COMMENT:"],
+            ["URL", SCREEN_HEADER, "<b>ID:</b>"],
+            id="only-filled-fields",
+        ),
+        pytest.param(
+            NOTES_HEADERS,
+            ["id1", "Blog", "Post", "-", "—", "", ""],
+            ["TITLE:"],
+            ["DESCRIPTION", "URL"],
+            id="skips-placeholders",
+        ),
+        pytest.param(
+            NOTES_HEADERS,
+            ["id1", "Blog", "<script>", "", "", "", ""],
+            ["&lt;script&gt;"],
+            ["<script>"],
+            id="escapes-html",
+        ),
+        pytest.param(
+            [*NOTES_HEADERS[:-1], "PRICE", COMMENT_HEADER],
+            ["id1", "Shop", "Item", "", "", "", "10$", ""],
+            ["PRICE:"],
+            [COMMENT_HEADER],
+            id="custom-columns",
+        ),
+    ],
+)
+def test_card_lines_formatting(
+    headers: list[str],
+    values: list[str],
+    expected: list[str],
+    absent: list[str],
+) -> None:
+    """Карточка: только заполненные поля, без прочерков, с экранированием HTML."""
     text = "\n".join(note_card_lines(headers, values))
 
-    assert "PRICE:" in text
-    assert COMMENT_HEADER not in text
+    assert all(chunk in text for chunk in expected)
+    assert all(chunk not in text for chunk in absent)
 
 
 def test_card_fields_separated_by_blank_line() -> None:
@@ -128,10 +130,12 @@ def test_note_context_reads_screen_file_id() -> None:
     assert ctx.screen == "FILE_ID"
 
 
-def test_note_card_buttons_layout() -> None:
-    """В карточке ровно пять кнопок и нет правки отдельных полей."""
+def test_note_card_buttons() -> None:
+    """В карточке 5 кнопок, и правка открывает меню колонок, не ячейку."""
     markup = keyboards.note_card("id1", "Blog")
-    texts = [button.text for button in flat(markup)]
+    keyboard = flat(markup)
+    texts = [button.text for button in keyboard]
+    datas = [button.callback_data for button in keyboard]
 
     assert texts == [
         buttons.EDIT_FIELD,
@@ -140,21 +144,16 @@ def test_note_card_buttons_layout() -> None:
         buttons.BACK,
         buttons.TO_MAIN,
     ]
-    field_labels = (
-        f"✏️ {SOURCE_HEADER}",
-        f"✏️ {TITLE_HEADER}",
-        "✏️ DESCRIPTION",
-        "✏️ URL",
-        f"✏️ {COMMENT_HEADER}",
+    assert not any(
+        label in texts
+        for label in (
+            f"✏️ {SOURCE_HEADER}",
+            f"✏️ {TITLE_HEADER}",
+            "✏️ DESCRIPTION",
+            "✏️ URL",
+            f"✏️ {COMMENT_HEADER}",
+        )
     )
-    assert not any(label in texts for label in field_labels)
-
-
-def test_note_card_edit_button_opens_menu() -> None:
-    """Кнопка правки открывает меню колонок, а не правит ячейку сразу."""
-    markup = keyboards.note_card("id1", "Blog")
-    datas = [button.callback_data for button in flat(markup)]
-
     assert Cb.note_edit_menu("id1") in datas
     assert Cb.note_edit_cell("id1", 2) not in datas
 
@@ -393,23 +392,28 @@ def test_split_messages_short_text_single_part() -> None:
 # --- Минимальная ширина пузыря с кнопками ---
 
 
-def test_with_min_width_skips_long_text() -> None:
-    """Длинный (по строке) текст возвращается без распорки."""
-    text = "Short line\n" + "x" * 40
+def test_with_min_width() -> None:
+    """Распорка нужна только короткому тексту и никогда не создаёт ``\n\n``."""
+    short_targets = [
+        "<b>" + "a" * 10 + "</b>",
+        "Column: URL\n\n",
+        "",
+        "hi",
+    ]
+    for target in short_targets:
+        padded = with_min_width(target)
 
-    assert with_min_width(text) == text
+        assert padded.endswith(WIDTH_SPACER)
+        assert padded.count(WIDTH_SPACER) == 1
+        assert "\n\n" not in padded
+        assert with_min_width(padded) == padded
+
+    long_text = "Short line\n" + "x" * MIN_BUBBLE_WIDTH
+    assert with_min_width(long_text) == long_text
+    assert WIDTH_SPACER not in with_min_width(long_text)
 
 
-def test_with_min_width_ignores_html_tags() -> None:
-    """Ширина считается по видимому тексту: теги не делают строку длинной."""
-    text = "<b>" + "a" * 10 + "</b>"
-    result = with_min_width(text)
-
-    assert result.startswith(text)
-    assert result.endswith(WIDTH_SPACER)
-
-
-def test_with_min_width_pads_short_text_without_blank_line() -> None:
+def test_with_min_width_pads_short_text() -> None:
     """Короткий текст: распорка через один перевод строки, без пустой строки."""
     result = with_min_width("Column: URL\n\n")
 
@@ -417,8 +421,15 @@ def test_with_min_width_pads_short_text_without_blank_line() -> None:
     assert "\n\n" not in result
 
 
-def test_with_min_width_is_idempotent() -> None:
-    """Повторный вызов не добавляет вторую распорку."""
+def test_with_min_width_short_text_padding() -> None:
+    """Идемпотентность: распорка не добавляется дважды (короткий/длинный)."""
     once = with_min_width("hi")
 
     assert with_min_width(once) == once
+    assert with_min_width(with_min_width("hi")) == once
+    assert with_min_width(once).count(WIDTH_SPACER) == 1
+
+    long_text = "x" * MIN_BUBBLE_WIDTH
+    assert with_min_width(long_text) == long_text
+    assert with_min_width(with_min_width(long_text)) == long_text
+    assert with_min_width(with_min_width("hi")) == once

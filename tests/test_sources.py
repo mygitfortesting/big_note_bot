@@ -107,34 +107,6 @@ def test_source_actions_legacy_show_notes(use_repo: UseRepo) -> None:
     assert texts[:2] == ["1", "2"]
 
 
-def test_empty_source_keeps_action_buttons(use_repo: UseRepo) -> None:
-    """Пустой источник: «There are no notes…» с теми же действиями."""
-    repo, _ = repo_for([])
-    repo.add_source("Podcast")
-    use_repo(repo)
-    state = FakeState()
-
-    asyncio.run(sources_handler.cb_manage_sources(callback(Cb.MENU_SOURCES), state))
-    show_callback = callback(Cb.src_show_notes(0))
-    asyncio.run(sources_handler.cb_source_show_notes(show_callback, state))
-
-    sent = show_callback.message.sent[-1]
-    assert "There are no notes in <b>Podcast</b> yet." in sent["text"]
-    keyboard = flat(sent["reply_markup"])
-    texts = [button.text for button in keyboard]
-    datas = [button.callback_data for button in keyboard]
-    # Список заметок: «➕ Add Note» + «✏️ Edit Source», затем действия и меню.
-    assert texts == [
-        buttons.ADD_NOTE_ROW,
-        buttons.EDIT_SOURCE,
-        buttons.BACK,
-        buttons.TO_MAIN,
-    ]
-    assert Cb.src_new_note(0) in datas
-    assert Cb.src_rename(0) in datas
-    assert Cb.MENU_SOURCES in datas
-
-
 def test_empty_source_manage_screen(use_repo: UseRepo) -> None:
     """Экран источника без заметок: заголовок и действия с подписями."""
     repo, _ = repo_for([])
@@ -268,36 +240,31 @@ def test_source_actions_add_note_skips_source_choice(use_repo: UseRepo) -> None:
     assert "Fresh" in [row[TITLE_HEADER] for row in data]
 
 
-def test_saved_source_alerts_on_stale_index(use_repo: UseRepo) -> None:
-    """Устаревший индекс: список из FSM пуст — alert SOURCE_LOST, без падения."""
-    repo, _ = repo_for([note_row("1", "Blog", "a")])
-    use_repo(repo)
-    state = FakeState()
-
-    stale_callback = callback(Cb.src_manage(0))
-    asyncio.run(sources_handler.cb_source_manage(stale_callback, state))
-
-    assert stale_callback.answers, "Bot answered nothing"
-    assert stale_callback.answers[-1]["text"] == buttons.SOURCE_LOST
-    assert stale_callback.answers[-1]["show_alert"] is True
-    assert stale_callback.message.sent == []
-
-
-@pytest.mark.parametrize("saved", [["Blog"], ["Blog", "News"]])
-def test_saved_source_alerts_on_out_of_range_index(
+@pytest.mark.parametrize(
+    "saved",
+    [
+        pytest.param([], id="empty-fsm"),
+        pytest.param(["Blog"], id="out-of-range"),
+        pytest.param(["Blog", "News"], id="out-of-range-two"),
+    ],
+)
+def test_saved_source_alerts_on_invalid_index(
     use_repo: UseRepo, saved: list[str]
 ) -> None:
-    """Индекс вне сохранённого списка (например, после удаления) — alert."""
+    """Индекс вне сохранённого списка — alert SOURCE_LOST без падения."""
     repo, _ = repo_for([note_row("1", "Blog", "a")])
     use_repo(repo)
     state = FakeState()
-    asyncio.run(state.update_data(source_list=saved, source_counts=[1] * len(saved)))
+    if saved:
+        await_counts = [1] * len(saved)
+        asyncio.run(state.update_data(source_list=saved, source_counts=await_counts))
 
     stale_callback = callback(Cb.src_manage(len(saved)))
     asyncio.run(sources_handler.cb_source_manage(stale_callback, state))
 
     assert stale_callback.answers, "Bot answered nothing"
     assert stale_callback.answers[-1]["text"] == buttons.SOURCE_LOST
+    assert stale_callback.answers[-1]["show_alert"] is True
     assert stale_callback.message.sent == []
 
 

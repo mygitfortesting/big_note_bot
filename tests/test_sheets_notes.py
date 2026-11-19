@@ -162,8 +162,16 @@ def test_list_sources_with_counts() -> None:
 # --- Поиск по названию ---
 
 
-def test_find_by_title_exact_wins_over_partial() -> None:
-    """Точное совпадение TITLE приоритетнее частичного."""
+@pytest.mark.parametrize(
+    ("query", "expected_ids"),
+    [
+        pytest.param("  yandex ", ["1"], id="exact-wins"),
+        pytest.param("YAND", ["1", "2"], id="partial-fallback"),
+        pytest.param("   ", [], id="empty-query"),
+    ],
+)
+def test_find_by_title(query: str, expected_ids: list[str]) -> None:
+    """Поиск по TITLE: точное совпадение приоритетнее частичного."""
     rows = [
         note_row("1", "Blog", "Yandex"),
         note_row("2", "Blog", "Yandex Zen"),
@@ -171,30 +179,9 @@ def test_find_by_title_exact_wins_over_partial() -> None:
     ]
     repo, _ = repo_for(rows)
 
-    found = repo.find_by_title("  yandex ")
+    found = repo.find_by_title(query)
 
-    assert [note.note_id for note in found] == ["1"]
-
-
-def test_find_by_title_partial_when_no_exact() -> None:
-    """Нет точного — возвращаются все строки, где запрос — подстрока."""
-    rows = [
-        note_row("1", "Blog", "Yandex Zen"),
-        note_row("2", "Blog", "Yandex Music"),
-        note_row("3", "Blog", "FlexiTech"),
-    ]
-    repo, _ = repo_for(rows)
-
-    found = repo.find_by_title("YANDEX")
-
-    assert [note.note_id for note in found] == ["1", "2"]
-
-
-def test_find_by_title_empty_query_returns_nothing() -> None:
-    """Пустой запрос не возвращает ничего."""
-    repo, _ = repo_for([note_row("1", "Blog", "Yandex")])
-
-    assert repo.find_by_title("   ") == []
+    assert [note.note_id for note in found] == expected_ids
 
 
 # --- Автозаполнение ID для ручных строк ---
@@ -259,12 +246,15 @@ def test_add_source_is_case_insensitive_and_idempotent() -> None:
     assert repo.list_sources_with_counts() == [("Blog", 1)]
 
 
-def test_add_source_rejects_empty_name() -> None:
-    """Пустое имя источника — ValueError."""
-    repo, _ = repo_for([])
+def test_source_name_validation_rejects_empty() -> None:
+    """Пустое имя источника не принимается ни при добавлении, ни при переименовании."""
+    repo, _ = repo_for([note_row("1", "Blog", "a")])
 
     with pytest.raises(ValueError):
         repo.add_source("   ")
+    with pytest.raises(ValueError):
+        repo.rename_source("Blog", "   ")
+    assert repo.list_sources() == ["Blog"]
 
 
 def test_create_fills_blank_source_row() -> None:
@@ -329,18 +319,13 @@ def test_rename_source_changes_all_rows_and_resorts() -> None:
     assert repo.list_sources() == ["Podcast", "YouTube"]
 
 
-def test_rename_source_rejects_empty_name() -> None:
-    """Пустое новое имя — ValueError, лист не меняется."""
-    repo, _ = repo_for([note_row("1", "Blog", "a")])
-    with pytest.raises(ValueError):
-        repo.rename_source("Blog", "   ")
-
-
-def test_rename_source_unknown_returns_zero() -> None:
-    """Неизвестный источник — 0 изменённых заметок."""
+def test_unknown_source_returns_zero() -> None:
+    """Неизвестный источник: 0 изменённых заметок и 0 удалённых строк."""
     repo, sheet = repo_for([note_row("1", "Blog", "a")])
 
     assert repo.rename_source("Nowhere", "Else") == 0
+    assert repo.delete_source("Nowhere") == 0
+    assert len(sheet.rows) == 2
     assert rows_by_header(sheet)[0][SOURCE_HEADER] == "Blog"
 
 
@@ -360,14 +345,6 @@ def test_delete_source_removes_only_its_rows() -> None:
     data = rows_by_header(sheet)
     assert [row[ID_HEADER] for row in data] == ["2", "4"]
     assert repo.list_sources() == ["YouTube"]
-
-
-def test_delete_source_unknown_returns_zero() -> None:
-    """Неизвестный источник не удаляет ни одной строки."""
-    repo, sheet = repo_for([note_row("1", "Blog", "a")])
-
-    assert repo.delete_source("Nowhere") == 0
-    assert len(sheet.rows) == 2
 
 
 # --- Заметки: удаление и служебные строки ---

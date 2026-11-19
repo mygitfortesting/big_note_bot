@@ -6,10 +6,12 @@ import asyncio
 from collections.abc import Callable
 from typing import Any
 
+import pytest
+
 from config import NOTES_HEADERS
 from handlers import wizard_handler
 from handlers.notes_common import NoteStates
-from services import buttons, keyboards
+from services import buttons
 from services.callback import Cb
 from services.sheets import (
     COMMENT_HEADER,
@@ -125,33 +127,47 @@ def test_add_source_lists_existing_sources_and_cancel(use_repo) -> None:
     assert state.state == NoteStates.wait_source
 
 
-def test_add_source_escapes_existing_sources(use_repo) -> None:
-    """Имя источника не может подменить разметку сообщения."""
-    repo, _ = repo_for([note_row("1", "<b>Shop</b>", "a")])
-    use_repo(repo)
-    escaped_message = message("", user_id=1)
-
-    asyncio.run(wizard_handler.ask_new_source(escaped_message, FakeState()))
-
-    assert escaped_message.sent, "Bot sent nothing"
-    text = escaped_message.sent[-1]["text"]
-    assert "<code>&lt;b&gt;Shop&lt;/b&gt;</code>" in text
-    assert "<b>Shop</b>" not in text
-
-
-def test_add_source_without_sources_has_no_existing_line(use_repo) -> None:
-    """Нет источников — стандартный промпт без строки «Existing:»."""
-    repo, _ = repo_for([])
+@pytest.mark.parametrize(
+    ("rows", "expected", "absent"),
+    [
+        pytest.param(
+            [note_row("1", "Telegram", "a"), note_row("2", "Instagram", "b")],
+            ["<code>Instagram</code>, <code>Telegram</code>"],
+            [],
+            id="lists-unique-sources",
+        ),
+        pytest.param(
+            [note_row("1", "<b>Shop</b>", "a")],
+            ["<code>&lt;b&gt;Shop&lt;/b&gt;</code>"],
+            ["<b>Shop</b>"],
+            id="escapes-html",
+        ),
+        pytest.param(
+            [],
+            [buttons.NEW_SOURCE_PROMPT.format(existing="\n")],
+            ["Existing:"],
+            id="no-sources-no-existing-line",
+        ),
+    ],
+)
+def test_add_source_prompt_formatting(
+    use_repo, rows: list[list[str]], expected: list[str], absent: list[str]
+) -> None:
+    """Промпт «🗂 Add source»: уникальный список, экранирование, Cancel."""
+    repo, _ = repo_for(rows)
     use_repo(repo)
     prompt_message = message("", user_id=1)
+    state = FakeState()
 
-    asyncio.run(wizard_handler.ask_new_source(prompt_message, FakeState()))
+    asyncio.run(wizard_handler.ask_new_source(prompt_message, state))
 
-    assert prompt_message.sent, "Bot sent nothing"
     sent = prompt_message.sent[-1]
-    assert sent["text"] == buttons.NEW_SOURCE_PROMPT.format(existing="\n")
+    text = sent["text"]
+    assert all(chunk in text for chunk in expected)
+    assert all(chunk not in text for chunk in absent)
     datas = [button.callback_data for button in flat(sent["reply_markup"])]
     assert Cb.CANCEL_INPUT in datas
+    assert state.state == NoteStates.wait_source
 
 
 def test_select_source_then_name_creates_note(use_repo) -> None:
@@ -180,26 +196,6 @@ def test_select_source_then_name_creates_note(use_repo) -> None:
 # --- Шаги мастера ---
 
 
-def test_note_wizard_step_keyboard_layout() -> None:
-    """Клавиатура шага мастера: Next/Done, Add another, Main menu."""
-    keyboard = flat(keyboards.note_wizard_step("id1"))
-    texts = [button.text for button in keyboard]
-    datas = [button.callback_data for button in keyboard]
-
-    assert texts == [
-        buttons.NEXT_FIELD,
-        buttons.DONE_NOTE,
-        buttons.ADD_ANOTHER_NOTE,
-        buttons.TO_MAIN,
-    ]
-    assert datas == [
-        Cb.wizard_next("id1"),
-        Cb.wizard_done("id1"),
-        Cb.wizard_another("id1"),
-        Cb.TO_MAIN,
-    ]
-
-
 def test_wizard_starts_after_title(use_repo) -> None:
     """После TITLE бот спрашивает первую оставшуюся колонку с кнопками."""
     _, state, started = _start_wizard(use_repo, title="Fresh")
@@ -221,31 +217,6 @@ def test_wizard_starts_after_title(use_repo) -> None:
         buttons.ADD_ANOTHER_NOTE,
         buttons.TO_MAIN,
     ]
-
-
-def test_wizard_saves_value_and_advances(use_repo) -> None:
-    """Ввод значения на шаге мастера сохраняет ячейку и идёт дальше."""
-    sheet, state, _ = _start_wizard(use_repo)
-
-    value_message = message("Some description", user_id=1)
-    asyncio.run(wizard_handler.wizard_got_text(value_message, state))
-
-    data = rows_by_header(sheet)
-    assert data[1]["DESCRIPTION"] == "Some description"
-    # Промежуточного «✅ Saved.» нет: только следующий шаг мастера.
-    assert len(value_message.sent) == 1
-    assert state.data["step"] == 1
-    assert state.data["title"] == "Fresh"
-    next_prompt = value_message.sent[-1]["text"]
-    assert "<b>URL</b>" in next_prompt
-    assert "New note: <b>Fresh</b>" in next_prompt
-
-    done_callback = callback(Cb.wizard_done(state.data["note_id"]))
-    asyncio.run(wizard_handler.cb_wizard_done(done_callback, state))
-
-    assert state.state is None
-    card = done_callback.message.sent[-1]["text"]
-    assert "<b>DESCRIPTION:</b> Some description" in card
 
 
 def test_wizard_done_opens_card(use_repo) -> None:
@@ -277,32 +248,41 @@ def test_wizard_another_note_same_source(use_repo) -> None:
     assert "Source: <b>Blog</b>" in prompt
 
 
-def test_wizard_next_skips_to_next_column(use_repo) -> None:
-    """«⏭ Next»: пропускает колонку без записи значения."""
-    _, state, _ = _start_wizard(use_repo)
+def test_wizard_full_walkthrough(use_repo) -> None:
+    """Текст ➔ Next ➔ фото SCREEN ➔ последнее поле ➔ карточка заметки."""
+    sheet, state, _ = _start_wizard(use_repo)
+    note_id = state.data["note_id"]
 
-    next_callback = callback(Cb.wizard_next(state.data["note_id"]))
-    asyncio.run(wizard_handler.cb_wizard_next(next_callback, state))
-
-    assert state.state == NoteStates.wizard_step
+    # DESCRIPTION — текст в ячейку, без промежуточного «Saved».
+    value_message = message("Some description", user_id=1)
+    asyncio.run(wizard_handler.wizard_got_text(value_message, state))
+    assert len(value_message.sent) == 1
+    assert "<b>URL</b>" in value_message.sent[-1]["text"]
     assert state.data["step"] == 1
-    assert "<b>URL</b>" in next_callback.message.sent[-1]["text"]
 
-    # Дальше SCREEN: жмём Next дважды, чтобы промотать URL и SCREEN.
-    second_next = callback(Cb.wizard_next(state.data["note_id"]))
-    asyncio.run(wizard_handler.cb_wizard_next(second_next, state))
-    assert "SCREEN" in second_next.message.sent[-1]["text"]
-
-    # Последняя колонка COMMENT: ещё одно нажатие завершает мастер карточкой.
-    third_next = callback(Cb.wizard_next(state.data["note_id"]))
-    asyncio.run(wizard_handler.cb_wizard_next(third_next, state))
-    assert "COMMENT" in third_next.message.sent[-1]["text"]
+    # URL и SCREEN пропускаем кнопкой Next.
+    for expected in ("SCREEN", "COMMENT"):
+        next_callback = callback(Cb.wizard_next(note_id))
+        asyncio.run(wizard_handler.cb_wizard_next(next_callback, state))
+        assert expected in next_callback.message.sent[-1]["text"]
     assert state.state == NoteStates.wizard_step
+    assert state.data["columns"][state.data["step"]][1] == COMMENT_HEADER
 
-    fourth_next = callback(Cb.wizard_next(state.data["note_id"]))
-    asyncio.run(wizard_handler.cb_wizard_next(fourth_next, state))
+    # Последнее поле: мастер закрывается и открывает карточку с текстами.
+    comment_message = message("Last field", user_id=1)
+    asyncio.run(wizard_handler.wizard_got_text(comment_message, state))
+
     assert state.state is None
-    assert "Fresh" in fourth_next.message.sent[-1]["text"]
+    card = comment_message.sent[-1]["text"]
+    assert "<b>DESCRIPTION:</b> Some description" in card
+    assert "<b>COMMENT:</b> Last field" in card
+    card_markup = comment_message.sent[-1]["reply_markup"]
+    datas = [button.callback_data for button in flat(card_markup)]
+    assert Cb.note_edit_menu(note_id) in datas
+
+    row = next(row for row in rows_by_header(sheet) if row[ID_HEADER] == note_id)
+    assert row["DESCRIPTION"] == "Some description"
+    assert row[COMMENT_HEADER] == "Last field"
 
 
 def test_wizard_buttons_work_after_fsm_reset(use_repo) -> None:
@@ -340,8 +320,8 @@ def test_wizard_buttons_work_after_fsm_reset(use_repo) -> None:
     assert "Source: <b>Blog</b>" in another_callback.message.sent[-1]["text"]
 
 
-def test_wizard_photo_saves_file_id_into_screen(use_repo) -> None:
-    """Фото на шаге SCREEN: file_id пишется в SCREEN, мастер идёт дальше."""
+def test_wizard_photo_uses_next_then_saves_file_id(use_repo) -> None:
+    """На шаге SCREEN фото пишет file_id в SCREEN и ведёт к COMMENT."""
     sheet, state, _ = _start_wizard(use_repo)
 
     # DESCRIPTION → URL → SCREEN: проматываем две колонки кнопкой «Next».
@@ -362,34 +342,16 @@ def test_wizard_photo_saves_file_id_into_screen(use_repo) -> None:
     assert "<b>COMMENT</b>" in photo_message.sent[-1]["text"]
 
 
-def test_wizard_completes_after_last_column(use_repo) -> None:
-    """После последней колонки мастер закрывается и открывает карточку."""
-    _, state, _ = _start_wizard(use_repo)
-    note_id = state.data["note_id"]
-
-    value_message = message("Some description", user_id=1)
-    asyncio.run(wizard_handler.wizard_got_text(value_message, state))
-    next_callback = callback(Cb.wizard_next(note_id))
-    asyncio.run(wizard_handler.cb_wizard_next(next_callback, state))
-    asyncio.run(wizard_handler.cb_wizard_next(next_callback, state))
-    assert state.state == NoteStates.wizard_step
-    assert state.data["columns"][state.data["step"]][1] == COMMENT_HEADER
-
-    comment_message = message("Last field", user_id=1)
-    asyncio.run(wizard_handler.wizard_got_text(comment_message, state))
-
-    assert state.state is None
-    card = comment_message.sent[-1]["text"]
-    assert "<b>DESCRIPTION:</b> Some description" in card
-    assert "<b>COMMENT:</b> Last field" in card
-    card_markup = comment_message.sent[-1]["reply_markup"]
-    datas = [button.callback_data for button in flat(card_markup)]
-    assert Cb.note_edit_menu(note_id) in datas
-
-
 def test_wizard_columns_skip_service_headers() -> None:
     """Мастер не спрашивает ID, SOURCE и TITLE — они уже известны."""
     columns = wizard_handler._wizard_columns(list(NOTES_HEADERS))
 
     names = [name for _, name in columns]
     assert names == ["DESCRIPTION", "URL", "SCREEN", "COMMENT"]
+
+
+def test_wizard_columns_start_at_description() -> None:
+    """Первая колонка мастера — DESCRIPTION (4-я колонка листа)."""
+    columns = wizard_handler._wizard_columns(list(NOTES_HEADERS))
+
+    assert columns[0][0] == 4

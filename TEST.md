@@ -50,9 +50,7 @@ pytest tests -m "not integration" -q
 
 | Тест | Проверяемое правило |
 | --- | --- |
-| `test_find_by_title_exact_wins_over_partial` | Точное совпадение TITLE приоритетнее частичного. |
-| `test_find_by_title_partial_when_no_exact` | Без точного совпадения возвращаются все подстроки. |
-| `test_find_by_title_empty_query_returns_nothing` | Пустой запрос ничего не находит. |
+| `test_find_by_title` | Поиск по TITLE: точное совпадение приоритетнее частичного; пустой запрос — ничего. |
 
 ### Автозаполнение ID
 
@@ -68,7 +66,7 @@ pytest tests -m "not integration" -q
 | --- | --- |
 | `test_add_source_creates_blank_row_without_id` | Источник добавляется строкой с одним SOURCE и 0 заметок. |
 | `test_add_source_is_case_insensitive_and_idempotent` | Повторное добавление в другом регистре ничего не меняет. |
-| `test_add_source_rejects_empty_name` | Пустое имя источника — `ValueError`. |
+| `test_source_name_validation_rejects_empty` | Пустое имя источника — `ValueError` при добавлении и переименовании. |
 | `test_create_fills_blank_source_row` | Первая заметка заполняет болванку вместо дубликата. |
 | `test_blank_source_is_not_listed_as_note` | Болванка не считается заметкой в списке источника. |
 | `test_rename_and_delete_source_include_blank_rows` | Болванка переименовывается и удаляется вместе с источником. |
@@ -78,10 +76,8 @@ pytest tests -m "not integration" -q
 | Тест | Проверяемое правило |
 | --- | --- |
 | `test_rename_source_changes_all_rows_and_resorts` | `rename_source` меняет SOURCE во всех строках и пересортировывает лист. |
-| `test_rename_source_rejects_empty_name` | Пустое имя — `ValueError`, лист не меняется. |
-| `test_rename_source_unknown_returns_zero` | Неизвестный источник — 0 изменённых заметок. |
+| `test_unknown_source_returns_zero` | Неизвестный источник: 0 переименованных заметок и 0 удалённых строк. |
 | `test_delete_source_removes_only_its_rows` | `delete_source` удаляет строки только указанного источника. |
-| `test_delete_source_unknown_returns_zero` | Неизвестный источник не удаляет строки. |
 
 ### Прочее и кэш
 
@@ -119,15 +115,11 @@ pytest tests -m "not integration" -q
 
 | Тест | Проверяемое правило |
 | --- | --- |
-| `test_card_outputs_only_filled_fields` | В карточке только заполненные поля: без ID, SCREEN и пустых ячеек. |
-| `test_card_skips_placeholders` | Прочерки и пустые ячейки в карточку не попадают. |
-| `test_card_escapes_html` | HTML из таблицы экранируется. |
-| `test_card_shows_custom_columns` | Пользовательские колонки видны, COMMENT скрыт. |
+| `test_card_lines_formatting` | Карточка: только заполненные поля, без прочерков, с экранированием HTML и пользовательскими колонками. |
 | `test_card_fields_separated_by_blank_line` | Поля карточки разделены пустой строкой. |
 | `test_note_context_editable_columns_exclude_id_and_screen` | Текстовая правка недоступна для ID и SCREEN. |
 | `test_note_context_reads_screen_file_id` | file_id скриншота читается из SCREEN. |
-| `test_note_card_buttons_layout` | В карточке ровно пять кнопок, без правки отдельных полей. |
-| `test_note_card_edit_button_opens_menu` | «✏️ Edit field» открывает меню колонок (`note_edit_menu`), а не правит ячейку сразу. |
+| `test_note_card_buttons` | В карточке 5 кнопок; «✏️ Edit field» открывает меню колонок, а не ячейку. |
 | `test_edit_field_accepts_any_column_except_id_and_screen` | Меню правки показывает все колонки, кроме ID и SCREEN. |
 
 ### Скриншот и поиск
@@ -150,10 +142,9 @@ pytest tests -m "not integration" -q
 | `test_source_navigation_buttons` | «Notes by source» без Cancel, ввод TITLE — с Cancel. |
 | `test_split_messages_respects_limit` | Длинный текст режется на части не длиннее лимита. |
 | `test_split_messages_short_text_single_part` | Короткий текст — одна часть, пустой — ни одной. |
-| `test_with_min_width_skips_long_text` | Если строка уже не уже распорки, `with_min_width` не добавляет её. |
-| `test_with_min_width_ignores_html_tags` | Ширина считается по видимому тексту без HTML-тегов. |
-| `test_with_min_width_pads_short_text_without_blank_line` | Короткий текст получает распорку через один `\n`, без пустой строки. |
-| `test_with_min_width_is_idempotent` | Повторный вызов не добавляет вторую распорку. |
+| `test_with_min_width` | Распорка добавляется только короткому тексту (по видимому тексту без тегов), без `\n\n`; длинному — не добавляется. |
+| `test_with_min_width_pads_short_text` | Короткий текст: распорка через один `\n`, без пустой строки. |
+| `test_with_min_width_short_text_padding` | Идемпотентность: повторная распорка не добавляется ни к короткому, ни к длинному тексту. |
 
 ---
 
@@ -165,25 +156,22 @@ pytest tests -m "not integration" -q
 | --- | --- |
 | `test_add_note_shows_sources_and_new_source_button` | «➕ Add note» показывает источники и «➕ Новый источник». |
 | `test_add_note_without_sources_asks_for_new_source` | Без источников сразу просит имя нового. |
-| `test_add_source_lists_existing_sources_and_cancel` | «➕ Add source» и кнопка «➕ New source»: список существующих (уникальных) и Cancel. |
-| `test_add_source_escapes_existing_sources` | Имя источника экранируется в подсказке. |
-| `test_add_source_without_sources_has_no_existing_line` | Без источников нет строки «Existing:». |
+| `test_add_source_lists_existing_sources_and_cancel` | «➕ Add source» и кнопка «➕ New source»: уникальный список источников, Cancel и Main menu. |
+| `test_add_source_prompt_formatting` | Промпт нового источника: список уникален, имя экранируется, без источников нет «Existing:». |
 | `test_select_source_then_name_creates_note` | Источник → TITLE → заметка создана и отсортирована. |
 
 ### Шаги мастера
 
 | Тест | Проверяемое правило |
 | --- | --- |
-| `test_note_wizard_step_keyboard_layout` | Клавиатура шага: Next/Done, Add another, Main menu с note_id. |
-| `test_wizard_starts_after_title` | Мастер спрашивает DESCRIPTION и показывает TITLE заметки. |
-| `test_wizard_saves_value_and_advances` | Значение пишется в ячейку без промежуточного «Saved». |
+| `test_wizard_starts_after_title` | Мастер спрашивает DESCRIPTION, показывает TITLE и кнопки шага. |
+| `test_wizard_full_walkthrough` | Текст → Next → фото SCREEN → последнее поле → открывается карточка. |
 | `test_wizard_done_opens_card` | «✅ Done» открывает карточку заметки. |
 | `test_wizard_another_note_same_source` | «➕ Add another note» снова просит TITLE того же источника. |
-| `test_wizard_next_skips_to_next_column` | «⏭ Next» листает колонки и завершает мастер карточкой. |
 | `test_wizard_buttons_work_after_fsm_reset` | Кнопки мастера работают с пустым FSM (рестарт сервера). |
-| `test_wizard_photo_saves_file_id_into_screen` | Фото на шаге SCREEN пишется в SCREEN и мастер идёт дальше. |
-| `test_wizard_completes_after_last_column` | После последней колонки открывается карточка. |
+| `test_wizard_photo_uses_next_then_saves_file_id` | «⏭ Next» доводит до SCREEN, фото пишет file_id в SCREEN. |
 | `test_wizard_columns_skip_service_headers` | Мастер не спрашивает ID, SOURCE и TITLE. |
+| `test_wizard_columns_start_at_description` | Первая колонка мастера — DESCRIPTION (4-я колонка листа). |
 
 ---
 
@@ -196,8 +184,7 @@ pytest tests -m "not integration" -q
 | `test_new_source_is_added_as_blank_source` | Источник сохраняется сразу болванкой без ID и TITLE. |
 | `test_sources_menu_numbers_and_opens_actions` | «🗂 Sources» нумерует источники и открывает действия. |
 | `test_source_actions_legacy_show_notes` | Старый callback «📂 Show notes» ведёт к списку заметок. |
-| `test_empty_source_keeps_action_buttons` | Пустой источник показывает те же действия. |
-| `test_empty_source_manage_screen` | Экран источника без заметок содержит подписанные действия. |
+| `test_empty_source_manage_screen` | Экран источника без заметок: заголовок и действия с подписями. |
 | `test_source_actions_show_all_notes` | «📖 Show all notes» выводит полные карточки источника. |
 | `test_notes_list_is_numbered_with_code_names` | Список заметок нумерован и даёт кнопки-номера. |
 | `test_notes_list_edit_source_button_starts_rename` | «✏️ Edit Source» запускает переименование. |
@@ -207,8 +194,7 @@ pytest tests -m "not integration" -q
 
 | Тест | Проверяемое правило |
 | --- | --- |
-| `test_saved_source_alerts_on_stale_index` | Пустой список в FSM — alert SOURCE_LOST без падения. |
-| `test_saved_source_alerts_on_out_of_range_index` | Индекс вне списка — alert SOURCE_LOST без падения. |
+| `test_saved_source_alerts_on_invalid_index` | Индекс вне сохранённого списка (`[]`, `["Blog"]`, `["Blog", "News"]`) — alert SOURCE_LOST без падения. |
 
 ### Переименование и удаление
 
