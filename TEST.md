@@ -57,6 +57,8 @@ pytest tests -m "not integration" -q
 | Тест | Проверяемое правило |
 | --- | --- |
 | `test_manual_row_without_id_gets_generated_id` | Ручная строка (SOURCE+TITLE без ID) получает сгенерированный ID в таблицу. |
+| `test_manual_rows_batch_update_writes_all_ids` | Несколько ручных строк получают ID одним `batch_update`. |
+| `test_ensure_missing_ids_handles_batch_update_error` | Ошибка сети в `batch_update` не роняет чтение карточки. |
 | `test_manual_row_without_id_is_found_when_listing_source` | Такая заметка видна в списке источника (кнопки работают). |
 | `test_empty_row_gets_no_id` | Полностью пустая строка остаётся без ID. |
 
@@ -66,7 +68,7 @@ pytest tests -m "not integration" -q
 | --- | --- |
 | `test_add_source_creates_blank_row_without_id` | Источник добавляется строкой с одним SOURCE и 0 заметок. |
 | `test_add_source_is_case_insensitive_and_idempotent` | Повторное добавление в другом регистре ничего не меняет. |
-| `test_source_name_validation_rejects_empty` | Пустое имя источника — `ValueError` при добавлении и переименовании. |
+| `test_source_name_validation_rejects_empty_and_colon` | Пустое имя источника или `:` — `ValueError` при добавлении и переименовании. |
 | `test_create_fills_blank_source_row` | Первая заметка заполняет болванку вместо дубликата. |
 | `test_blank_source_is_not_listed_as_note` | Болванка не считается заметкой в списке источника. |
 | `test_rename_and_delete_source_include_blank_rows` | Болванка переименовывается и удаляется вместе с источником. |
@@ -88,6 +90,9 @@ pytest tests -m "not integration" -q
 | `test_create_and_update_reuse_cached_snapshot` | `create`/`update_cell_at` правят кэш без повторного чтения листа. |
 | `test_locate_rereads_sheet_when_cached_snapshot_is_stale` | ID нет в кэше, но есть в листе — `locate`/`get` перечитывают лист и находят заметку. |
 | `test_locate_rereads_sheet_when_id_appears_in_new_sheet_object` | Ключ кэша стабилен: новый объект листа с тем же `title` видит те же данные. |
+| `test_sheet_cache_has_thread_lock` | `SheetCache` защищает записи через `threading.Lock`. |
+| `test_persist_sorted_updates_sheet_and_cache` | `_persist_sorted` сортирует снимок, пишет в лист и обновляет кэш. |
+| `test_add_source_updates_cache_without_redundant_reads` | `add_source` делает 1 чтение при пустом кэше и 0 при тёплом. |
 
 ---
 
@@ -106,6 +111,8 @@ pytest tests -m "not integration" -q
 | `test_reorder_keeps_data` | Перестановка колонок переносит данные вместе с шапкой. |
 | `test_reorder_middle_rejects_bad_permutation` | Повторы и чужие номера отклоняются. |
 | `test_reorder_middle_keeps_leading_and_comment` | Средние колонки меняются местами, служебные остаются на местах. |
+| `test_screen_slot_index_resolution` | `screen_slot_index`: имя `SCREEN` ➔ позиция перед `COMMENT` ➔ базовая позиция. |
+| `test_protected_columns_accepts_preloaded_headers` | `protected_columns` может принимать уже прочитанные `headers`. |
 
 ---
 
@@ -139,12 +146,17 @@ pytest tests -m "not integration" -q
 
 | Тест | Проверяемое правило |
 | --- | --- |
-| `test_source_navigation_buttons` | «Notes by source» без Cancel, ввод TITLE — с Cancel. |
+| `test_source_navigation_buttons` | «Sources manage» без Cancel, ввод TITLE — с Cancel. |
 | `test_split_messages_respects_limit` | Длинный текст режется на части не длиннее лимита. |
 | `test_split_messages_short_text_single_part` | Короткий текст — одна часть, пустой — ни одной. |
 | `test_with_min_width` | Распорка добавляется только короткому тексту (по видимому тексту без тегов), без `\n\n`; длинному — не добавляется. |
 | `test_with_min_width_pads_short_text` | Короткий текст: распорка через один `\n`, без пустой строки. |
 | `test_with_min_width_short_text_padding` | Идемпотентность: повторная распорка не добавляется ни к короткому, ни к длинному тексту. |
+| `test_note_delete_ask_shows_confirmation` | Нажатие «Delete» в карточке открывает экран подтверждения. |
+| `test_note_delete_executes_under_user_lock` | Подтверждение удаления удаляет строку заметки под `user_lock`. |
+| `test_source_name_with_colon_rejected_in_handlers` | Хендлеры отклоняют имя источника с символом `:`. |
+| `test_plain_text_cleans_tags_and_unescapes_entities` | `plain_text` удаляет HTML-теги и декодирует HTML-сущности. |
+| `test_is_quota_error_logic` | `_is_quota_error` определяет ошибку 429 по APIError или тексту. |
 
 ---
 
@@ -217,3 +229,8 @@ pytest tests -m "not integration" -q
 | `test_screen_column_cannot_be_deleted` | У SCREEN есть переименование, но нет удаления. |
 | `test_columns_menu_add_column_prompt` | «➕ Add column» спрашивает имя колонки. |
 | `test_new_column_gets_into_numbered_list` | Новая колонка появляется в нумерованном списке. |
+| `test_cancel_input_in_add_and_rename_states` | «✖️ Cancel» работает на шагах добавления и переименования колонки. |
+| `test_column_states_wrong_type_message` | Не-текстовое сообщение в состояниях `ColumnStates` возвращает подсказку. |
+| `test_delete_protected_column_alert_plain_text` | Alert при удалении защищённой колонки выводится чистым текстом без `&amp;`. |
+| `test_rows_per_row_validation` | `keyboards._rows` выбрасывает `ValueError` при `per_row < 1`. |
+| `test_column_order_reuses_cached_total` | `got_column_order` берёт сохранённый `column_total` из FSMContext. |

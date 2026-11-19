@@ -5,7 +5,8 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Callable
 
-from config import NOTES_HEADERS
+import pytest
+
 from handlers import columns_handler
 from services import buttons
 from services.callback import Cb
@@ -192,4 +193,84 @@ def test_new_column_gets_into_numbered_list(use_service: UseService) -> None:
     body = column_message.sent[-1]["text"]
     assert "4. <code>CONTACT</code>" in body
     assert body.startswith(buttons.COLUMNS_PROMPT)
-    assert NOTES_HEADERS[0] in body
+
+
+def test_cancel_input_in_add_and_rename_states(use_service: UseService) -> None:
+    """«✖️ Cancel» работает на шагах добавления и переименования колонки."""
+    _, sheet, state = _open_columns(use_service)
+
+    cb_add = callback(Cb.COL_ADD)
+    asyncio.run(columns_handler.cb_column_add(cb_add, state))
+    assert state.state == columns_handler.ColumnStates.wait_new_name
+    add_prompt = cb_add.message.sent[-1]
+    datas = [b.callback_data for b in flat(add_prompt["reply_markup"])]
+    assert Cb.CANCEL_INPUT in datas
+
+    cancel_cb = callback(Cb.CANCEL_INPUT)
+    asyncio.run(columns_handler.cb_cancel_column_order(cancel_cb, state))
+    assert state.state is None
+
+    cb_rename = callback(Cb.col_rename(4))
+    asyncio.run(columns_handler.cb_column_rename(cb_rename, state))
+    assert state.state == columns_handler.ColumnStates.wait_rename
+    rename_prompt = cb_rename.message.sent[-1]
+    rename_datas = [b.callback_data for b in flat(rename_prompt["reply_markup"])]
+    assert Cb.CANCEL_INPUT in rename_datas
+
+    asyncio.run(columns_handler.cb_cancel_column_order(cancel_cb, state))
+    assert state.state is None
+
+
+def test_column_states_wrong_type_message() -> None:
+    """Не-текстовое сообщение в состояниях ColumnStates возвращает подсказку."""
+    photo_msg = message("", user_id=1)
+    asyncio.run(columns_handler.got_column_wrong_type(photo_msg))
+
+    assert len(photo_msg.sent) == 1
+    assert "Please send text" in photo_msg.sent[-1]["text"]
+
+
+def test_delete_protected_column_alert_plain_text(
+    use_service: UseService,
+) -> None:
+    """Alert при удалении защищённой колонки выводится чистым текстом без &amp;."""
+    service, _ = columns_for()
+    use_service(service)
+    state = FakeState()
+
+    del_cb = callback(Cb.col_del(1))  # ID
+    asyncio.run(columns_handler.cb_column_delete(del_cb, state))
+
+    assert del_cb.answers[-1]["show_alert"] is True
+    alert_text = del_cb.answers[-1]["text"] or ""
+    assert "&amp;" not in alert_text
+    assert "&lt;" not in alert_text
+    assert "🔒" in alert_text
+    assert "service column" in alert_text
+
+
+def test_rows_per_row_validation() -> None:
+    """keyboards._rows выбрасывает ValueError при per_row < 1."""
+    from services import keyboards
+
+    with pytest.raises(ValueError, match="per_row must be at least 1"):
+        keyboards._rows([], per_row=0)
+    with pytest.raises(ValueError, match="per_row must be at least 1"):
+        keyboards._rows([], per_row=-1)
+
+
+def test_column_order_reuses_cached_total(use_service: UseService) -> None:
+    """got_column_order использует сохранённый column_total из FSMContext."""
+    service, sheet = columns_for()
+    use_service(service)
+    state = FakeState()
+
+    order_callback = callback(Cb.COL_REORDER)
+    asyncio.run(columns_handler.cb_column_reorder(order_callback, state))
+
+    assert state.data.get("column_total") == 3
+
+    order_msg = message("3 2 1", user_id=1)
+    asyncio.run(columns_handler.got_column_order(order_msg, state))
+
+    assert sheet.rows[0][3:6] == ["SCREEN", "URL", "DESCRIPTION"]

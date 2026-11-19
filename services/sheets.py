@@ -16,6 +16,7 @@
 from __future__ import annotations
 
 import logging
+import threading
 import time
 import uuid
 from dataclasses import dataclass
@@ -83,6 +84,7 @@ class SheetCache:
 
     def __init__(self, ttl: float = CACHE_TTL) -> None:
         self._ttl = ttl
+        self._lock = threading.Lock()
         # (время записи, снимок); истёкшая копия не удаляется — она нужна
         # мягким фоллбэком при 429 Quota exceeded
         self._entries: dict[str, tuple[float, list[list[str]]]] = {}
@@ -90,10 +92,11 @@ class SheetCache:
     def drop_stale(self, sheet: Any, user_id: int | None = None) -> None:
         """Помечает снимок листа устаревшим: следующее чтение пойдёт в Sheets."""
         key = self._key(user_id, sheet)
-        hit = self._entries.get(key)
-        if hit is not None:
-            # заменяем время на «бесконечно давно», снимок остаётся для 429
-            self._entries[key] = (-self._ttl, hit[1])
+        with self._lock:
+            hit = self._entries.get(key)
+            if hit is not None:
+                # заменяем время на «бесконечно давно», снимок остаётся для 429
+                self._entries[key] = (-self._ttl, hit[1])
 
     def get_values(
         self,
@@ -109,15 +112,18 @@ class SheetCache:
         просроченную, вместо падения с ошибкой.
         """
         key = self._key(user_id, sheet)
-        hit = self._entries.get(key)
         now = time.monotonic()
-        if hit and not force and now - hit[0] < self._ttl:
-            return hit[1]
+        with self._lock:
+            hit = self._entries.get(key)
+            if hit and not force and now - hit[0] < self._ttl:
+                return hit[1]
 
         try:
             values = self._read_sheet(sheet)
         except Exception as e:
-            stale = hit[1] if hit else None
+            with self._lock:
+                hit = self._entries.get(key)
+                stale = hit[1] if hit else None
             if stale is not None and "429" in str(e):
                 logger.warning(
                     "Google Sheets quota exceeded — serving stale cache "
@@ -128,7 +134,8 @@ class SheetCache:
                 return stale
             raise
 
-        self._entries[key] = (now, values)
+        with self._lock:
+            self._entries[key] = (now, values)
         return values
 
     @staticmethod
@@ -185,15 +192,16 @@ class SheetCache:
         """
         if col_index < 1 or row_index < 1:
             return False
-        entries = self._entries_with_user(sheet, user_id)
-        for key in entries:
-            values = self._entries[key][1]
-            if row_index > len(values):
-                continue
-            values[row_index - 1] = pad_row(values[row_index - 1], col_index)
-            values[row_index - 1][col_index - 1] = value
-            return True
-        return False
+        with self._lock:
+            entries = self._entries_with_user(sheet, user_id)
+            for key in entries:
+                values = self._entries[key][1]
+                if row_index > len(values):
+                    continue
+                values[row_index - 1] = pad_row(values[row_index - 1], col_index)
+                values[row_index - 1][col_index - 1] = value
+                return True
+            return False
 
     def replace_values(
         self, sheet: Any, values: list[list[str]], user_id: int | None = None
@@ -205,16 +213,17 @@ class SheetCache:
         после старта или после истечения TTL) — именно на этом держится
         берёжный поиск ID на следующем шаге мастера. True — снимок сохранён.
         """
-        if user_id is None:
-            suffix = f":{self._sheet_key(sheet)}"
-            keys = [key for key in self._entries if key.endswith(suffix)]
-            if not keys:
-                return False
-            for key in keys:
-                self._entries[key] = (time.monotonic(), values)
+        with self._lock:
+            if user_id is None:
+                suffix = f":{self._sheet_key(sheet)}"
+                keys = [key for key in self._entries if key.endswith(suffix)]
+                if not keys:
+                    return False
+                for key in keys:
+                    self._entries[key] = (time.monotonic(), values)
+                return True
+            self._entries[self._key(user_id, sheet)] = (time.monotonic(), values)
             return True
-        self._entries[self._key(user_id, sheet)] = (time.monotonic(), values)
-        return True
 
     def _entries_with_user(self, sheet: Any, user_id: int | None) -> list[str]:
         """Ключи кэша этого листа (с учётом user_id, если он известен)."""
@@ -231,12 +240,13 @@ class SheetCache:
         user_id=None — глобальный сброс (тесты, скрипты миграции).
         С user_id — точечно: только ключи этого пользователя.
         """
-        if user_id is None:
-            self._entries.clear()
-            return
-        prefix = f"values:{user_id}:"
-        for key in [k for k in self._entries if k.startswith(prefix)]:
-            self._entries.pop(key, None)
+        with self._lock:
+            if user_id is None:
+                self._entries.clear()
+                return
+            prefix = f"values:{user_id}:"
+            for key in [k for k in self._entries if k.startswith(prefix)]:
+                self._entries.pop(key, None)
 
 
 _cache = SheetCache()
@@ -398,18 +408,18 @@ def screen_slot_index(headers: Sequence[str]) -> int | None:
     Штатная позиция колонки скриншотов (1-based) или None.
 
     Сначала ищем колонку по имени ``SCREEN``. Если её переименовали, берём
-    её штатное место в шапке: позиция из ``BASE_HEADERS`` или — для шапки
-    с пользовательскими колонками — колонка перед ``COMMENT``.
+    её позицию перед ``COMMENT`` (если она есть в шапке), и только потом
+    базовую позицию из ``_SCREEN_BASE_POSITIONS``.
     """
     by_name = _index_of(headers, SCREEN_HEADER)
     if by_name is not None:
         return by_name
-    for position in _SCREEN_BASE_POSITIONS:
-        if position <= len(headers):
-            return position
     comment_col = comment_column_index(list(headers))
     if comment_col is not None and comment_col > len(LEADING_HEADERS) + 1:
         return comment_col - 1
+    for position in _SCREEN_BASE_POSITIONS:
+        if position <= len(headers):
+            return position
     return None
 
 
@@ -571,7 +581,8 @@ class NoteRepository(_SheetBound):
             for row in values[1:]
             if cell(row, id_col - 1).strip()
         }
-        changed = False
+        col_letter = column_letter(id_col)
+        updates: list[dict[str, Any]] = []
         for row_index, row in enumerate(values[1:], start=2):
             if cell(row, id_col - 1).strip():
                 continue
@@ -582,9 +593,12 @@ class NoteRepository(_SheetBound):
             while len(row) < len(headers):
                 row.append("")
             row[id_col - 1] = new_id
-            self.sheet.update_cell(row_index, id_col, new_id)
-            changed = True
-        if changed:
+            updates.append({"range": f"{col_letter}{row_index}", "values": [[new_id]]})
+        if updates:
+            try:
+                self.sheet.batch_update(updates, value_input_option="RAW")
+            except Exception as e:
+                logger.warning("Could not persist generated IDs: %s", e)
             invalidate_cache(self._user_id)
 
     def list_by_source(self, source: str) -> list[Note]:
@@ -707,11 +721,7 @@ class NoteRepository(_SheetBound):
             values[blank_row - 1] = row
         else:
             values.append(row)
-        sorted_values = self._sorted_snapshot(headers, values)
-        self._write_snapshot(sorted_values)
-        # Снимок кладём в кэш напрямую: следующий шаг мастера увидит ID,
-        # даже если до create кэш был пуст или истёк по TTL.
-        _remember_values(self.sheet, sorted_values, self._user_id)
+        self._persist_sorted(headers, values)
         return new_id
 
     @staticmethod
@@ -745,6 +755,16 @@ class NoteRepository(_SheetBound):
 
         data.sort(key=key)
         return [list(headers), *data]
+
+    def _persist_sorted(
+        self, headers: list[str], values: list[list[str]]
+    ) -> list[list[str]]:
+        """Сортирует снимок (SOURCE -> TITLE), пишет на лист и сохраняет в кэше."""
+        sorted_values = self._sorted_snapshot(headers, values)
+        self._write_snapshot(sorted_values)
+        if not _remember_values(self.sheet, sorted_values, self._user_id):
+            invalidate_cache(self._user_id)
+        return sorted_values
 
     def _write_snapshot(self, values: list[list[str]]) -> None:
         """Пишет снимок в лист одним update (шапка — первой строкой)."""
@@ -784,19 +804,23 @@ class NoteRepository(_SheetBound):
         name = (source or "").strip()
         if not name:
             raise ValueError("Source name must not be empty.")
-        wanted = name.lower()
-        if any(item.strip().lower() == wanted for item in self.list_sources()):
-            return False
-        headers = self.headers()
+        if ":" in name:
+            raise ValueError("Source name must not contain ':' symbol.")
+        values = self._all_values()
+        headers = headers_of(values)
         if not headers:  # пустой лист без шапки: восстанавливаем базовую
             headers = list(BASE_HEADERS)
             self.sheet.insert_row(headers, index=1, value_input_option="RAW")
-            invalidate_cache(self._user_id)
+            values = [list(headers)]
+            _remember_values(self.sheet, values, self._user_id)
+        source_col = source_column_index(headers) - 1
+        wanted = name.lower()
+        if any(cell(row, source_col).strip().lower() == wanted for row in values[1:]):
+            return False
         row = [""] * len(headers)
-        row[source_column_index(headers) - 1] = name
-        self.sheet.append_row(row, value_input_option="RAW")
-        invalidate_cache(self._user_id)
-        self.sort_notes()
+        row[source_col] = name
+        values.append(row)
+        self._persist_sorted(headers, values)
         return True
 
     def update_cell_at(self, row_index: int, col_index: int, value: str) -> None:
@@ -821,18 +845,26 @@ class NoteRepository(_SheetBound):
 
     # --- источники ---
 
-    def _source_rows(self, source: str) -> list[int]:
+    def _source_rows(
+        self,
+        source: str,
+        values: list[list[str]] | None = None,
+        headers: list[str] | None = None,
+    ) -> list[int]:
         """Номера строк (1-based, сверху вниз) с этим SOURCE."""
         wanted = (source or "").strip().lower()
         if not wanted:
             return []
-        headers = self.headers()
+        if values is None:
+            values = self._all_values()
+        if headers is None:
+            headers = headers_of(values)
         if not headers:
             return []
         source_col = source_column_index(headers) - 1
         return [
             row_index
-            for row_index, row in enumerate(self._all_values()[1:], start=2)
+            for row_index, row in enumerate(values[1:], start=2)
             if cell(row, source_col).strip().lower() == wanted
         ]
 
@@ -860,24 +892,21 @@ class NoteRepository(_SheetBound):
         name = (new_source or "").strip()
         if not name:
             raise ValueError("Source name must not be empty.")
-        row_indexes = self._source_rows(old_source)
+        if ":" in name:
+            raise ValueError("Source name must not contain ':' symbol.")
+        values = self._all_values()
+        headers = headers_of(values)
+        row_indexes = self._source_rows(old_source, values, headers)
         if not row_indexes:
             return 0
-        headers = self.headers()
         source_col = source_column_index(headers)
-        values = self._all_values()
         notes = self._count_source_notes(row_indexes, values, headers)
         for row_index in row_indexes:
             self.sheet.update_cell(row_index, source_col, name)
             if row_index - 1 < len(values):
                 values[row_index - 1] = pad_row(values[row_index - 1], source_col)
                 values[row_index - 1][source_col - 1] = name
-        # Пересортировываем уже поправленный снимок: без лишнего чтения
-        # и без риска, что сервер отдаст ещё не обновлённые данные.
-        sorted_values = self._sorted_snapshot(headers, values)
-        self._write_snapshot(sorted_values)
-        if not _remember_values(self.sheet, sorted_values, self._user_id):
-            invalidate_cache(self._user_id)
+        self._persist_sorted(headers, values)
         return notes
 
     def delete_source(self, source: str) -> int:
@@ -887,11 +916,12 @@ class NoteRepository(_SheetBound):
         Строки удаляются снизу вверх: при удалении сверху сдвигаются индексы
         ещё не удалённых строк, и чужие заметки уехали бы вместе с ними.
         """
-        row_indexes = self._source_rows(source)
+        values = self._all_values()
+        headers = headers_of(values)
+        row_indexes = self._source_rows(source, values, headers)
         if not row_indexes:
             return 0
-        headers = self.headers()
-        notes = self._count_source_notes(row_indexes, self._all_values(), headers)
+        notes = self._count_source_notes(row_indexes, values, headers)
         for row_index in reversed(row_indexes):
             self.sheet.delete_rows(row_index)
         invalidate_cache(self._user_id)
@@ -913,11 +943,7 @@ class NoteRepository(_SheetBound):
         headers = headers_of(values)
         if not headers or len(values) < 2:
             return
-        data = self._sorted_snapshot(headers, values)
-        self._write_snapshot(data)
-        if remember and _remember_values(self.sheet, data, self._user_id):
-            return
-        invalidate_cache(self._user_id)
+        self._persist_sorted(headers, values)
 
 
 # --- Сервис колонок (шапка листа заметок) ---
@@ -944,11 +970,12 @@ class ColumnService(_SheetBound):
     def headers(self) -> list[str]:
         return headers_of(self._all_values())
 
-    def _header(self, col_index: int) -> str:
-        headers = self.headers()
+    def _header(self, col_index: int, headers: list[str] | None = None) -> str:
+        if headers is None:
+            headers = self.headers()
         return cell(headers, col_index - 1).strip()
 
-    def protected_columns(self) -> set[int]:
+    def protected_columns(self, headers: list[str] | None = None) -> set[int]:
         """
         Номера колонок, которые нельзя удалить.
 
@@ -957,7 +984,8 @@ class ColumnService(_SheetBound):
         * скриншот — по имени ``SCREEN`` или по штатной позиции, поэтому
           колонка остаётся защищённой и после переименования.
         """
-        headers = self.headers()
+        if headers is None:
+            headers = self.headers()
         protected = {
             index
             for index, header in enumerate(headers, start=1)
@@ -986,7 +1014,7 @@ class ColumnService(_SheetBound):
         if not new_name:
             raise ValueError("Column name must not be empty.")
         headers = self.headers()
-        comment_col = self.comment_column()
+        comment_col = comment_column_index(headers)
         if comment_col is not None:
             # insert_cols сдвигает COMMENT и все её данные вправо на 1 колонку
             self.sheet.insert_cols(
@@ -1007,8 +1035,9 @@ class ColumnService(_SheetBound):
         Удаляет пользовательскую колонку (1-based) через delete_columns —
         Sheets сам сдвигает данные влево, мусор справа не остаётся.
         """
-        if col_index in self.protected_columns():
-            header = self._header(col_index) or "service"
+        headers = self.headers()
+        if col_index in self.protected_columns(headers):
+            header = cell(headers, col_index - 1).strip() or "service"
             raise ValueError(
                 f"Column {col_index} ({header}) is a service column "
                 "and cannot be deleted."
@@ -1026,7 +1055,8 @@ class ColumnService(_SheetBound):
         name = (new_name or "").strip()
         if not name:
             raise ValueError("Column name must not be empty.")
-        header = self._header(col_index)
+        headers = self.headers()
+        header = self._header(col_index, headers)
         if header.upper() in RENAME_PROTECTED_HEADERS or not header:
             raise ValueError(
                 f"Column {col_index} ({header}) is a service column "

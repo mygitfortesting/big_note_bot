@@ -76,6 +76,7 @@ class Cb:
     NOTE_EDIT_MENU = "note_edit_menu"
     NOTE_EDIT_CELL = "note_edit_cell"
     NOTE_PHOTO = "note_photo"
+    NOTE_DEL_ASK = "note_del_ask"
     NOTE_DEL = "note_del"
     COL_ADD = "col_add"
     COL_DEL = "col_del"
@@ -187,6 +188,11 @@ class Cb:
     def note_photo(cls, note_id: str) -> str:
         """Прикрепить/заменить скриншот заметки."""
         return cls._join(cls.NOTE_PHOTO, note_id)
+
+    @classmethod
+    def note_del_ask(cls, note_id: str) -> str:
+        """Запросить подтверждение удаления заметки."""
+        return cls._join(cls.NOTE_DEL_ASK, note_id)
 
     @classmethod
     def note_del(cls, note_id: str) -> str:

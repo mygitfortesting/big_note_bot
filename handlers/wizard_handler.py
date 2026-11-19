@@ -34,6 +34,8 @@ from services.telegram_io import (
     send_error_message,
     show_main_menu,
     status_message,
+    user_id_of,
+    user_lock,
 )
 from services.text_utils import escape_html, with_min_width
 
@@ -155,12 +157,14 @@ async def got_note_title(message: types.Message, state: FSMContext) -> None:
     repo = repo_of(message)
     if repo is None:
         return
-    try:
-        note_id = await asyncio.to_thread(repo.create, source, title)
-        # Тот же объект репозитория дальше: его кэш уже содержит новую заметку.
-        await start_note_wizard(message, repo, note_id, source, title, state)
-    except Exception as e:
-        await send_error_message(message, e)
+    user_id = user_id_of(message) or repo._user_id
+    async with user_lock(user_id):
+        try:
+            note_id = await asyncio.to_thread(repo.create, source, title)
+            # Тот же объект репозитория дальше: его кэш уже содержит новую заметку.
+            await start_note_wizard(message, repo, note_id, source, title, state)
+        except Exception as e:
+            await send_error_message(message, e)
 
 
 # --- Шаги мастера ---
@@ -321,13 +325,15 @@ async def _save_wizard_step(
     repo = repo_of(message)
     if repo is None:
         return
-    try:
-        note_id = await asyncio.to_thread(
-            _write_or_recreate, repo, note_id, source, title, col_index, value
-        )
-    except Exception as e:
-        await send_error_message(message, e)
-        return
+    user_id = user_id_of(message) or repo._user_id
+    async with user_lock(user_id):
+        try:
+            note_id = await asyncio.to_thread(
+                _write_or_recreate, repo, note_id, source, title, col_index, value
+            )
+        except Exception as e:
+            await send_error_message(message, e)
+            return
     # Промежуточное «saved» не отправляем: сразу следующий шаг мастера.
     # Новый note_id — в FSMContext, иначе _advance_wizard сохранит старый.
     await state.update_data(note_id=note_id, step=step)

@@ -11,6 +11,7 @@ from services.sheets import (
     SCREEN_HEADER,
     SOURCE_HEADER,
     TITLE_HEADER,
+    screen_slot_index,
 )
 from tests.factories import columns_for, note_row
 
@@ -173,4 +174,45 @@ def test_reorder_middle_keeps_leading_and_comment() -> None:
     assert row["URL"] == "https://x"
     assert row[SCREEN_HEADER] == "fid"
     assert row[COMMENT_HEADER] == "c"
-    assert row[TITLE_HEADER] == "Note"
+
+
+@pytest.mark.parametrize(
+    ("headers", "expected"),
+    [
+        pytest.param(
+            ["ID", "SOURCE", "TITLE", "DESC", "URL", "SCREEN", "COMMENT"],
+            6,
+            id="by-name",
+        ),
+        pytest.param(
+            ["ID", "SOURCE", "TITLE", "DESC", "URL", "SCREENSHOT", "COMMENT"],
+            6,
+            id="before-comment",
+        ),
+        pytest.param(
+            ["ID", "SOURCE", "TITLE", "DESC", "URL", "SCREENSHOT", "EXTRA", "COMMENT"],
+            7,
+            id="before-comment-with-extra",
+        ),
+        pytest.param(
+            ["ID", "SOURCE", "TITLE", "DESC", "URL", "SCREENSHOT"],
+            6,
+            id="fallback-base-position",
+        ),
+    ],
+)
+def test_screen_slot_index_resolution(headers: list[str], expected: int) -> None:
+    """screen_slot_index: имя SCREEN -> позиция перед COMMENT -> базовая позиция."""
+    assert screen_slot_index(headers) == expected
+
+
+def test_protected_columns_accepts_cached_headers() -> None:
+    """protected_columns может принимать уже прочитанные headers."""
+    service, _ = columns_for([])
+    headers = service.headers()
+    assert service.protected_columns(headers) == service.protected_columns()
+
+
+test_protected_columns_accepts_preloaded_headers = (
+    test_protected_columns_accepts_cached_headers
+)

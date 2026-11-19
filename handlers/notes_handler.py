@@ -54,8 +54,10 @@ from services.telegram_io import (
     send_parts,
     show_main_menu,
     status_message,
+    user_id_of,
+    user_lock,
 )
-from services.text_utils import escape_html
+from services.text_utils import escape_html, with_min_width
 
 logger = logging.getLogger(__name__)
 
@@ -196,12 +198,14 @@ async def got_field_value(message: types.Message, state: FSMContext) -> None:
     if repo is None or not note_id or not col_index:
         return
     value = clean_value(message.text)
-    try:
-        await asyncio.to_thread(write_note_cell, repo, note_id, col_index, value)
-        await status_message(message, buttons.NOTE_SAVED)
-        await show_note(message, note_id)
-    except Exception as e:
-        await send_error_message(message, e)
+    user_id = user_id_of(message) or repo._user_id
+    async with user_lock(user_id):
+        try:
+            await asyncio.to_thread(write_note_cell, repo, note_id, col_index, value)
+            await status_message(message, buttons.NOTE_SAVED)
+            await show_note(message, note_id)
+        except Exception as e:
+            await send_error_message(message, e)
 
 
 # --- Скриншот ---
@@ -250,13 +254,15 @@ async def got_photo(message: types.Message, state: FSMContext) -> None:
         await status_message(message, "⚠️ Please send a photo.")
         return
     file_id = message.photo[-1].file_id
-    try:
-        col_index = await asyncio.to_thread(screen_column, repo)
-        await asyncio.to_thread(write_note_cell, repo, note_id, col_index, file_id)
-        await status_message(message, buttons.PHOTO_SAVED)
-        await show_note(message, note_id)
-    except Exception as e:
-        await send_error_message(message, e)
+    user_id = user_id_of(message) or repo._user_id
+    async with user_lock(user_id):
+        try:
+            col_index = await asyncio.to_thread(screen_column, repo)
+            await asyncio.to_thread(write_note_cell, repo, note_id, col_index, file_id)
+            await status_message(message, buttons.PHOTO_SAVED)
+            await show_note(message, note_id)
+        except Exception as e:
+            await send_error_message(message, e)
 
 
 @card_router.message(NoteStates.wait_photo)
@@ -276,6 +282,35 @@ def screen_column(repo: NoteRepository) -> int:
 # --- Удаление заметки ---
 
 
+@card_router.callback_query(F.data.startswith(f"{Cb.NOTE_DEL_ASK}:"))
+async def cb_note_delete_ask(callback: types.CallbackQuery) -> None:
+    """«🗑 Delete»: спрашивает подтверждение удаления заметки."""
+    await ack_callback(callback)
+    ref = Cb.parse_note(callback.data or "", Cb.NOTE_DEL_ASK)
+    if ref is None:
+        return
+    repo = repo_of(callback)
+    if repo is None:
+        return
+    try:
+        ctx = await asyncio.to_thread(note_context, repo, ref.note_id)
+    except Exception as e:
+        await send_error_message(callback, e)
+        return
+    if ctx is None:
+        await alert(callback, "⚠️ Note not found.")
+        return
+    prompt = (
+        f"🗑 <b>Delete note</b> <b>{escape_html(ctx.title)}</b>?\n\n"
+        "This cannot be undone."
+    )
+    await show_main_menu(
+        callback,
+        with_min_width(prompt),
+        keyboards.note_delete_confirm(ctx.note_id, ctx.source),
+    )
+
+
 @card_router.callback_query(F.data.startswith(f"{Cb.NOTE_DEL}:"))
 async def cb_note_delete(callback: types.CallbackQuery, state: FSMContext) -> None:
     """«🗑 Delete note»: удаляет строку заметки и возвращает к источнику."""
@@ -290,13 +325,15 @@ async def cb_note_delete(callback: types.CallbackQuery, state: FSMContext) -> No
     if repo is None:
         return
     note_id = ref.note_id
-    try:
-        ctx = await asyncio.to_thread(note_context, repo, note_id)
-        source = ctx.source if ctx is not None else ref.source
-        await asyncio.to_thread(repo.delete, note_id)
-    except Exception as e:
-        await send_error_message(callback, e)
-        return
+    user_id = user_id_of(callback) or repo._user_id
+    async with user_lock(user_id):
+        try:
+            ctx = await asyncio.to_thread(note_context, repo, note_id)
+            source = ctx.source if ctx is not None else ref.source
+            await asyncio.to_thread(repo.delete, note_id)
+        except Exception as e:
+            await send_error_message(callback, e)
+            return
     await status_message(callback, buttons.NOTE_DELETED)
     if not source:
         await send_main_menu(callback)

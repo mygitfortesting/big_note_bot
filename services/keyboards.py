@@ -22,6 +22,8 @@ def _rows(
     items: Iterable[InlineKeyboardButton], per_row: int = 1
 ) -> list[list[InlineKeyboardButton]]:
     """Раскладывает кнопки по рядам по ``per_row`` штук."""
+    if per_row < 1:
+        raise ValueError("per_row must be at least 1")
     row: list[InlineKeyboardButton] = []
     rows: list[list[InlineKeyboardButton]] = []
     for item in items:
@@ -168,6 +170,11 @@ def note_delete_button(note_id: str) -> InlineKeyboardButton:
     return _button(buttons.DELETE_NOTE, Cb.note_del(note_id))
 
 
+def note_delete_ask_button(note_id: str) -> InlineKeyboardButton:
+    """«🗑 Delete» — запросить подтверждение удаления заметки."""
+    return _button(buttons.DELETE_NOTE, Cb.note_del_ask(note_id))
+
+
 def note_photo_button(note_id: str) -> InlineKeyboardButton:
     """«🖼 Add/Replace screenshot» — прикрепить скриншот."""
     return _button(buttons.PHOTO, Cb.note_photo(note_id))
@@ -255,17 +262,6 @@ def sources(
         rows.append([new_source_button()])
     rows.append([cancel_row(), to_main_row()])
     return _markup(rows)
-
-
-def sources_with_counts(
-    counts: Sequence[tuple[str, int]],
-) -> InlineKeyboardMarkup:
-    """«📂 Notes by source»: источник и количество заметок."""
-    items = [
-        _button(f"{source} · {count}", Cb.src_notes(source))
-        for source, count in counts[:PAGE_SIZE]
-    ]
-    return _markup([*_rows(items, 2), [to_main_row()]])
 
 
 # --- Управление источниками ---
@@ -376,7 +372,7 @@ def note_card(note_id: str, source: str) -> InlineKeyboardMarkup:
     """Клавиатура карточки заметки: правка поля, скриншот, удаление и навигация."""
     back_button = note_source_back_button(source) if source else cancel_row()
     rows: list[list[InlineKeyboardButton]] = [
-        [note_edit_menu_button(note_id), note_delete_button(note_id)],
+        [note_edit_menu_button(note_id), note_delete_ask_button(note_id)],
         [note_photo_button(note_id)],
         [back_button, to_main_row()],
     ]
@@ -497,6 +493,7 @@ __all__ = [
     "new_source_button",
     "new_source_cancel",
     "note_card",
+    "note_delete_ask_button",
     "note_delete_button",
     "note_delete_confirm",
     "note_edit_menu_button",
@@ -519,7 +516,6 @@ __all__ = [
     "sources",
     "sources_button",
     "sources_manage",
-    "sources_with_counts",
     "table_link",
     "to_main_row",
     "wizard_another_button",

@@ -19,6 +19,7 @@ _HIDDEN_CARD_HEADERS = {"ID", "SCREEN"}
 _EMPTY_VALUES = {"", "—", "-"}
 
 CARD_BLOCK_SEPARATOR = "\n\n"
+_TAG_RE = re.compile(r"<[^>]+>")
 
 
 def escape_html(text: str) -> str:
@@ -32,7 +33,8 @@ def escape_html(text: str) -> str:
 
 def plain_text(text: str, limit: int = 3000) -> str:
     """Текст без HTML-разметки — запасной вариант, если HTML не принят Telegram."""
-    return escape_html(text)[:limit]
+    stripped = _TAG_RE.sub("", text or "")
+    return html.unescape(stripped)[:limit]
 
 
 def split_messages(text: str, limit: int = MESSAGE_LIMIT) -> list[str]:
@@ -76,7 +78,6 @@ def _is_filled(value: str | None) -> bool:
 WIDTH_SPACER = "\u2800" * 26
 #: Минимальная ширина пузыря с кнопками (длина WIDTH_SPACER).
 MIN_BUBBLE_WIDTH = len(WIDTH_SPACER)
-_TAG_RE = re.compile(r"<[^>]+>")
 
 
 def _max_line_width(text: str) -> int:

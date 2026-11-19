@@ -13,6 +13,7 @@ import asyncio
 import logging
 
 from aiogram import F, Router, types
+from aiogram.filters import StateFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 
@@ -26,6 +27,8 @@ from services.telegram_io import (
     send_error_message,
     show_main_menu,
     status_message,
+    user_id_of,
+    user_lock,
 )
 from services.text_utils import escape_html, with_min_width
 
@@ -171,7 +174,9 @@ async def cb_column_add(callback: types.CallbackQuery, state: FSMContext) -> Non
     """Кнопка «➕ Add column»: спрашиваем имя новой колонки."""
     await ack_callback(callback)
     await state.set_state(ColumnStates.wait_new_name)
-    await show_main_menu(callback, buttons.COLUMN_ADD_PROMPT, keyboards.back_to_main())
+    await show_main_menu(
+        callback, buttons.COLUMN_ADD_PROMPT, keyboards.new_source_cancel()
+    )
 
 
 @router.message(ColumnStates.wait_new_name, F.text)
@@ -183,12 +188,14 @@ async def got_new_column_name(message: types.Message, state: FSMContext) -> None
     if svc is None or not name:
         await status_message(message, "⚠️ Column name must not be empty.")
         return
-    try:
-        await asyncio.to_thread(svc.add, name)
-        await status_message(message, buttons.NOTE_SAVED)
-        await show_columns(message, state)
-    except Exception as e:
-        await send_error_message(message, e)
+    user_id = user_id_of(message) or svc._user_id
+    async with user_lock(user_id):
+        try:
+            await asyncio.to_thread(svc.add, name)
+            await status_message(message, buttons.NOTE_SAVED)
+            await show_columns(message, state)
+        except Exception as e:
+            await send_error_message(message, e)
 
 
 # --- Удаление ---
@@ -204,14 +211,16 @@ async def cb_column_delete(callback: types.CallbackQuery, state: FSMContext) -> 
     svc = _service(callback)
     if svc is None:
         return
-    try:
-        await asyncio.to_thread(svc.delete, col_index)
-    except ValueError as e:
-        await alert(callback, f"🔒 {escape_html(str(e))}")
-        return
-    except Exception as e:
-        await send_error_message(callback, e)
-        return
+    user_id = user_id_of(callback) or svc._user_id
+    async with user_lock(user_id):
+        try:
+            await asyncio.to_thread(svc.delete, col_index)
+        except ValueError as e:
+            await alert(callback, f"🔒 {e}")
+            return
+        except Exception as e:
+            await send_error_message(callback, e)
+            return
     await show_columns(callback, state)
 
 
@@ -241,7 +250,7 @@ async def cb_column_rename(callback: types.CallbackQuery, state: FSMContext) -> 
     await show_main_menu(
         callback,
         buttons.COLUMN_RENAME_PROMPT.format(field=escape_html(field)),
-        keyboards.back_to_main(),
+        keyboards.new_source_cancel(),
     )
 
 
@@ -255,14 +264,16 @@ async def got_renamed_column(message: types.Message, state: FSMContext) -> None:
     svc = _service(message)
     if svc is None or not col_index:
         return
-    try:
-        await asyncio.to_thread(svc.rename, col_index, name)
-        await status_message(message, buttons.NOTE_SAVED)
-        await show_columns(message, state)
-    except ValueError as e:
-        await status_message(message, f"🔒 {escape_html(str(e))}")
-    except Exception as e:
-        await send_error_message(message, e)
+    user_id = user_id_of(message) or svc._user_id
+    async with user_lock(user_id):
+        try:
+            await asyncio.to_thread(svc.rename, col_index, name)
+            await status_message(message, buttons.NOTE_SAVED)
+            await show_columns(message, state)
+        except ValueError as e:
+            await status_message(message, f"🔒 {escape_html(str(e))}")
+        except Exception as e:
+            await send_error_message(message, e)
 
 
 # --- Порядок ---
@@ -302,14 +313,15 @@ async def cb_column_reorder(callback: types.CallbackQuery, state: FSMContext) ->
         await alert(callback, "⚠️ There is nothing to reorder yet.")
         return
     await state.set_state(ColumnStates.wait_order)
+    await state.update_data(column_total=len(columns))
     await show_main_menu(callback, _ordered_text(columns), keyboards.columns_cancel())
 
 
-@router.callback_query(ColumnStates.wait_order, F.data == Cb.CANCEL_INPUT)
+@router.callback_query(StateFilter(ColumnStates), F.data == Cb.CANCEL_INPUT)
 async def cb_cancel_column_order(
     callback: types.CallbackQuery, state: FSMContext
 ) -> None:
-    """«✖️ Cancel» ввода порядка — возврат к списку «📋 Columns»."""
+    """«✖️ Cancel» ввода колонки — возврат к списку «📋 Columns»."""
     await ack_callback(callback)
     await state.clear()
     await show_columns(callback, state)
@@ -332,11 +344,14 @@ async def got_column_order(message: types.Message, state: FSMContext) -> None:
     svc = _service(message)
     if svc is None:
         return
-    try:
-        total = len(await asyncio.to_thread(_editable_columns, svc))
-    except Exception as e:
-        await send_error_message(message, e)
-        return
+    data = await state.get_data()
+    total = int(data.get("column_total", 0) or 0)
+    if not total:
+        try:
+            total = len(await asyncio.to_thread(_editable_columns, svc))
+        except Exception as e:
+            await send_error_message(message, e)
+            return
     order = _parse_order(message.text or "", total)
     if order is None:
         example = " ".join(str(number) for number in range(1, total + 1))
@@ -345,21 +360,31 @@ async def got_column_order(message: types.Message, state: FSMContext) -> None:
             buttons.COLUMN_ORDER_BAD_INPUT.format(low=1, high=total, example=example),
         )
         return
-    try:
-        await asyncio.to_thread(svc.reorder_middle, order)
-    except ValueError as e:
-        await status_message(message, f"⚠️ {escape_html(str(e))}")
-        return
-    except Exception as e:
-        await send_error_message(message, e)
-        return
+    user_id = user_id_of(message) or svc._user_id
+    async with user_lock(user_id):
+        try:
+            await asyncio.to_thread(svc.reorder_middle, order)
+        except ValueError as e:
+            await status_message(message, f"⚠️ {escape_html(str(e))}")
+            return
+        except Exception as e:
+            await send_error_message(message, e)
+            return
     await state.clear()
     await status_message(message, buttons.COLUMN_ORDER_SAVED)
     await show_columns(message, state)
 
 
+@router.message(StateFilter(ColumnStates))
+async def got_column_wrong_type(message: types.Message) -> None:
+    """Не-текстовое сообщение (фото, стикер и др.) в состояниях ввода колонок."""
+    await status_message(message, "⚠️ Please send text.")
+
+
 __all__ = [
     "ColumnStates",
+    "cb_cancel_column_order",
+    "got_column_wrong_type",
     "router",
     "show_columns",
 ]

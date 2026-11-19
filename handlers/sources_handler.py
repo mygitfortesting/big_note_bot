@@ -27,6 +27,8 @@ from services.telegram_io import (
     send_parts,
     show_main_menu,
     status_message,
+    user_id_of,
+    user_lock,
 )
 from services.text_utils import (
     escape_html,
@@ -199,14 +201,19 @@ async def got_new_source(message: types.Message, state: FSMContext) -> None:
     if not source:
         await status_message(message, "⚠️ Source name must not be empty.")
         return
+    if ":" in source:
+        await status_message(message, "⚠️ Source name must not contain ':' symbol.")
+        return
     await state.clear()
     repo = repo_of(message)
     if repo is None:
         return
+    user_id = user_id_of(message) or repo._user_id
     try:
-        added = await asyncio.to_thread(repo.add_source, source)
-    except ValueError:
-        await status_message(message, "⚠️ Source name must not be empty.")
+        async with user_lock(user_id):
+            added = await asyncio.to_thread(repo.add_source, source)
+    except ValueError as e:
+        await status_message(message, f"⚠️ {e}")
         return
     except Exception as e:
         await send_error_message(message, e)
@@ -395,10 +402,22 @@ async def got_renamed_source(message: types.Message, state: FSMContext) -> None:
         await status_message(message, buttons.SOURCE_LOST)
         await show_sources_manage(event=message, repo=repo, state=state)
         return
-    try:
-        updated = await asyncio.to_thread(repo.rename_source, old_source, new_source)
-    except ValueError:
+    if not new_source:
         await status_message(message, "⚠️ Source name must not be empty.")
+        await show_sources_manage(event=message, repo=repo, state=state)
+        return
+    if ":" in new_source:
+        await status_message(message, "⚠️ Source name must not contain ':' symbol.")
+        await show_sources_manage(event=message, repo=repo, state=state)
+        return
+    user_id = user_id_of(message) or repo._user_id
+    try:
+        async with user_lock(user_id):
+            updated = await asyncio.to_thread(
+                repo.rename_source, old_source, new_source
+            )
+    except ValueError as e:
+        await status_message(message, f"⚠️ {e}")
         await show_sources_manage(event=message, repo=repo, state=state)
         return
     except Exception as e:
@@ -443,8 +462,10 @@ async def cb_source_delete_confirm(
     repo = repo_of(callback)
     if repo is None:
         return
+    user_id = user_id_of(callback) or repo._user_id
     try:
-        deleted = await asyncio.to_thread(repo.delete_source, source)
+        async with user_lock(user_id):
+            deleted = await asyncio.to_thread(repo.delete_source, source)
     except Exception as e:
         await send_error_message(callback, e)
         return

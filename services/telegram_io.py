@@ -1,8 +1,10 @@
 """Отправка сообщений и callback-ответов (единственная точка выхода в Telegram)."""
 
+import asyncio
 import logging
 from typing import Any, TypeAlias, cast
 
+import gspread.exceptions
 from aiogram import types
 
 from services.text_utils import escape_html, plain_text, split_messages
@@ -51,6 +53,19 @@ def user_id_of(target: Target) -> int | None:
     """ID пользователя из события (НИКОГДА не из callback_data)."""
     user = require_from_user(target)
     return user.id if user is not None else None
+
+
+_user_locks: dict[int, asyncio.Lock] = {}
+
+
+def user_lock(user_id: int | None = None) -> asyncio.Lock:
+    """Возвращает asyncio.Lock для сериализации записей конкретного пользователя."""
+    key = user_id if user_id is not None else 0
+    lock = _user_locks.get(key)
+    if lock is None:
+        lock = asyncio.Lock()
+        _user_locks[key] = lock
+    return lock
 
 
 async def ack_callback(callback: types.CallbackQuery, text: str | None = None) -> None:
@@ -138,7 +153,13 @@ async def safe_reply(target: Target, text: str, **kwargs) -> None:
 
 def _is_quota_error(error: Exception) -> bool:
     """Google Sheets вернул 429 (превышен лимит запросов в минуту)."""
-    return "429" in str(error) or "Quota exceeded" in str(error)
+    if isinstance(error, gspread.exceptions.APIError):
+        response = getattr(error, "response", None)
+        status = getattr(response, "status_code", None) or getattr(error, "code", None)
+        if status == 429:
+            return True
+    msg = str(error).lower()
+    return "429" in msg and ("quota" in msg or "rate" in msg)
 
 
 async def send_error_message(target: Target, error: Exception) -> None:

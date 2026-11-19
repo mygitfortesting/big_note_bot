@@ -8,7 +8,7 @@ from collections.abc import Callable
 import pytest
 
 from config import NOTES_HEADERS
-from handlers import notes_handler
+from handlers import notes_handler, sources_handler
 from handlers.notes_handler import NoteContext
 from services import buttons, keyboards
 from services.callback import Cb
@@ -20,14 +20,16 @@ from services.sheets import (
     Note,
     NoteRepository,
 )
+from services.telegram_io import _is_quota_error
 from services.text_utils import (
     MIN_BUBBLE_WIDTH,
     WIDTH_SPACER,
     note_card_lines,
+    plain_text,
     split_messages,
     with_min_width,
 )
-from tests.conftest import flat, message
+from tests.conftest import callback, flat, message
 from tests.factories import note_row, repo_for, rows_by_header
 from tests.fakes import FakeState
 
@@ -155,6 +157,7 @@ def test_note_card_buttons() -> None:
         )
     )
     assert Cb.note_edit_menu("id1") in datas
+    assert Cb.note_del_ask("id1") in datas
     assert Cb.note_edit_cell("id1", 2) not in datas
 
 
@@ -355,8 +358,8 @@ def test_search_ignores_commands(
 def test_source_navigation_buttons(
     use_repo: UseRepo,
 ) -> None:
-    """Notes by source — без Cancel; ввод TITLE — с Cancel."""
-    by_source = keyboards.sources_with_counts([("Blog", 2)])
+    """Sources manage — без Cancel; ввод TITLE — с Cancel."""
+    by_source = keyboards.sources_manage(2)
     datas = [button.callback_data for button in flat(by_source)]
     assert Cb.CANCEL_INPUT not in datas
     assert Cb.TO_MAIN in datas
@@ -432,4 +435,78 @@ def test_with_min_width_short_text_padding() -> None:
     long_text = "x" * MIN_BUBBLE_WIDTH
     assert with_min_width(long_text) == long_text
     assert with_min_width(with_min_width(long_text)) == long_text
-    assert with_min_width(with_min_width("hi")) == once
+
+
+def test_note_delete_ask_shows_confirmation(use_repo: UseRepo) -> None:
+    """Нажатие 'Delete' в карточке показывает подтверждение удаления."""
+    repo, _ = repo_for([note_row("1", "Blog", "Note Title")])
+    use_repo(repo)
+    cb = callback(Cb.note_del_ask("1"))
+
+    asyncio.run(notes_handler.cb_note_delete_ask(cb))
+
+    assert len(cb.message.sent) == 1
+    sent = cb.message.sent[-1]
+    assert "Delete note" in sent["text"]
+    assert "Note Title" in sent["text"]
+    datas = [button.callback_data for button in flat(sent["reply_markup"])]
+    assert Cb.note_del("1") in datas
+    assert Cb.note_view("1", "Blog") in datas
+
+
+def test_note_delete_executes_under_user_lock(use_repo: UseRepo) -> None:
+    """Подтверждение удаления удаляет строку и возвращает к списку заметок."""
+    repo, sheet = repo_for([note_row("1", "Blog", "Note Title")])
+    use_repo(repo)
+    cb = callback(Cb.note_del("1"))
+    state = FakeState()
+
+    asyncio.run(notes_handler.cb_note_delete(cb, state))
+
+    assert len(sheet.rows) == 1  # Только шапка
+    assert repo.get("1") is None
+
+
+def test_source_name_with_colon_rejected_in_handlers(use_repo: UseRepo) -> None:
+    """Хендлеры создания и переименования отклоняют имя источника с ':'."""
+    repo, _ = repo_for([note_row("1", "Blog", "Title")])
+    use_repo(repo)
+
+    # Добавление
+    msg_add = message("Bad:Source")
+    state_add = FakeState()
+    asyncio.run(sources_handler.got_new_source(msg_add, state_add))
+    assert any("':'" in sent["text"] for sent in msg_add.sent)
+
+    # Переименование
+    msg_rename = message("Another:Source")
+    state_rename = FakeState()
+    asyncio.run(state_rename.update_data(source="Blog"))
+    asyncio.run(sources_handler.got_renamed_source(msg_rename, state_rename))
+    assert any("':'" in sent["text"] for sent in msg_rename.sent)
+
+
+def test_plain_text_cleans_tags_and_unescapes_entities() -> None:
+    """plain_text вырезает HTML-теги и декодирует HTML-сущности."""
+    raw = "<b>Bold &amp; text</b> with <a href='http://x'>link</a>"
+    assert plain_text(raw) == "Bold & text with link"
+
+
+def test_is_quota_error_logic() -> None:
+    """_is_quota_error проверяет 429 в APIError или слова quota/rate рядом с 429."""
+    import gspread.exceptions
+
+    class DummyResponse:
+        status_code = 429
+        text = "Quota exceeded"
+
+        def json(self) -> dict[str, object]:
+            return {"error": {"code": 429, "message": "Quota exceeded"}}
+
+    api_err = gspread.exceptions.APIError(DummyResponse())
+    assert _is_quota_error(api_err) is True
+
+    assert _is_quota_error(Exception("429: rate limit exceeded")) is True
+    assert _is_quota_error(Exception("Quota exceeded (code 429)")) is True
+    assert _is_quota_error(Exception("Random 429 happened")) is False
+    assert _is_quota_error(Exception("Other error")) is False

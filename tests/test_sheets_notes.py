@@ -200,6 +200,36 @@ def test_manual_row_without_id_gets_generated_id() -> None:
     assert repo.get(generated) is not None
 
 
+def test_manual_rows_batch_update_writes_all_ids() -> None:
+    """Несколько ручных строк получают ID одним batch_update."""
+    repo, sheet = repo_for(
+        [
+            ["", "Blog", "First", "", "", "", ""],
+            ["", "Blog", "Second", "", "", "", ""],
+        ]
+    )
+
+    notes = repo.list_notes()
+
+    assert len(notes) == 2
+    assert sheet.rows[1][0] == notes[0].note_id
+    assert sheet.rows[2][0] == notes[1].note_id
+
+
+def test_ensure_missing_ids_handles_batch_update_error() -> None:
+    """Ошибка сети в batch_update не роняет чтение карточки."""
+    repo, sheet = repo_for([["", "Blog", "Manual", "", "", "", ""]])
+
+    def failing_batch_update(data: list[object], **kwargs: object) -> None:
+        raise RuntimeError("Simulated network error")
+
+    setattr(sheet, "batch_update", failing_batch_update)
+
+    notes = repo.list_notes()
+    assert len(notes) == 1
+    assert notes[0].note_id  # ID сгенерирован в памяти
+
+
 def test_manual_row_without_id_is_found_when_listing_source() -> None:
     """Такая заметка видна и в списке источника (путь чтения для кнопок)."""
     repo, sheet = repo_for([["", "Blog", "Manual", "", "", "", ""]])
@@ -246,14 +276,18 @@ def test_add_source_is_case_insensitive_and_idempotent() -> None:
     assert repo.list_sources_with_counts() == [("Blog", 1)]
 
 
-def test_source_name_validation_rejects_empty() -> None:
-    """Пустое имя источника не принимается ни при добавлении, ни при переименовании."""
+def test_source_name_validation_rejects_empty_and_colon() -> None:
+    """Пустое имя или ':' не принимается ни при добавлении, ни при переименовании."""
     repo, _ = repo_for([note_row("1", "Blog", "a")])
 
     with pytest.raises(ValueError):
         repo.add_source("   ")
     with pytest.raises(ValueError):
         repo.rename_source("Blog", "   ")
+    with pytest.raises(ValueError):
+        repo.add_source("bad:name")
+    with pytest.raises(ValueError):
+        repo.rename_source("Blog", "bad:name")
     assert repo.list_sources() == ["Blog"]
 
 
@@ -454,3 +488,43 @@ def test_locate_rereads_sheet_when_id_appears_in_new_sheet_object() -> None:
     fresh = NoteRepository(user_id=1, sheet=recreated)
 
     assert [note.note_id for note in fresh.list_notes()] == ["1"]
+
+
+def test_sheet_cache_has_thread_lock() -> None:
+    """SheetCache защищает _entries через threading.Lock."""
+    import threading
+
+    from services.sheets import SheetCache
+
+    cache = SheetCache()
+    assert hasattr(cache, "_lock")
+    assert isinstance(cache._lock, type(threading.Lock()))
+
+
+def test_persist_sorted_updates_sheet_and_cache() -> None:
+    """_persist_sorted сортирует снимок, пишет в sheet и кэш."""
+    repo, sheet = repo_for([])
+    headers = list(NOTES_HEADERS)
+    rows = [
+        note_row("1", "Twitter", "b"),
+        note_row("2", "Blog", "a"),
+    ]
+    repo._persist_sorted(headers, [headers, *rows])
+    assert sheet.rows[1][0] == "2"  # Blog a идет первым
+    assert repo.get("2") is not None
+
+
+def test_add_source_updates_cache_without_redundant_reads() -> None:
+    """add_source не делает лишних чтений листа перед сортировкой."""
+    repo, sheet = repo_for([note_row("1", "Blog", "Post")])
+    setattr(sheet, "title", "Notes_1")
+    counting = _CountingSheet(sheet)
+    repo._sheet = counting
+
+    assert repo.add_source("Podcast") is True
+    assert counting.reads == 2  # холодный кэш: ровно 1 чтение
+    assert "Podcast" in repo.list_sources()
+
+    assert repo.add_source("Radio") is True
+    assert counting.reads == 2  # тёплый кэш: 0 дополнительных чтений
+    assert "Radio" in repo.list_sources()
