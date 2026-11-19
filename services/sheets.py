@@ -87,17 +87,31 @@ class SheetCache:
         # мягким фоллбэком при 429 Quota exceeded
         self._entries: dict[str, tuple[float, list[list[str]]]] = {}
 
-    def get_values(self, sheet: Any, user_id: int | None = None) -> list[list[str]]:
+    def drop_stale(self, sheet: Any, user_id: int | None = None) -> None:
+        """Помечает снимок листа устаревшим: следующее чтение пойдёт в Sheets."""
+        key = self._key(user_id, sheet)
+        hit = self._entries.get(key)
+        if hit is not None:
+            # заменяем время на «бесконечно давно», снимок остаётся для 429
+            self._entries[key] = (-self._ttl, hit[1])
+
+    def get_values(
+        self,
+        sheet: Any,
+        user_id: int | None = None,
+        force: bool = False,
+    ) -> list[list[str]]:
         """
         Весь лист одним запросом. Копию не делаем: вызывающий код только читает.
 
+        ``force=True`` — игнорировать TTL и перечитать лист с сервера.
         При 429 (Quota exceeded) отдаём предыдущую копию данных, даже
         просроченную, вместо падения с ошибкой.
         """
         key = self._key(user_id, sheet)
         hit = self._entries.get(key)
         now = time.monotonic()
-        if hit and now - hit[0] < self._ttl:
+        if hit and not force and now - hit[0] < self._ttl:
             return hit[1]
 
         try:
@@ -133,8 +147,26 @@ class SheetCache:
             return sheet.get_all_values()
 
     @staticmethod
-    def _key(user_id: int | None, sheet: Any) -> str:
-        return f"values:{user_id}:{id(sheet)}"
+    def _sheet_key(sheet: Any) -> str:
+        """
+        Стабильный идентификатор листа.
+
+        ``id(sheet)`` нельзя: gspread после таймаута пересоздаёт объект
+        ``Worksheet``, и только что созданная заметка исчезает из кэша.
+        Берём внутренний ID листа (``id``), затем имя (``title``), и только
+        в самом крайнем случае — ``id()`` объекта.
+        """
+        sheet_id = getattr(sheet, "id", None)
+        if isinstance(sheet_id, int):
+            return f"sheet:{sheet_id}"
+        title = getattr(sheet, "title", None)
+        if isinstance(title, str) and title:
+            return f"title:{title}"
+        return f"object:{id(sheet)}"
+
+    @classmethod
+    def _key(cls, user_id: int | None, sheet: Any) -> str:
+        return f"values:{user_id}:{cls._sheet_key(sheet)}"
 
     def update_cell(
         self,
@@ -165,19 +197,31 @@ class SheetCache:
 
     def replace_values(
         self, sheet: Any, values: list[list[str]], user_id: int | None = None
-    ) -> int:
-        """Кладёт в кэш только что записанный снимок; число обновлённых ключей."""
-        keys = self._entries_with_user(sheet, user_id)
-        for key in keys:
-            self._entries[key] = (time.monotonic(), values)
-        return len(keys)
+    ) -> bool:
+        """
+        Кладёт в кэш только что записанный снимок этого листа.
+
+        Снимок появляется в кэше, даже если его там ещё не было (первая запись
+        после старта или после истечения TTL) — именно на этом держится
+        берёжный поиск ID на следующем шаге мастера. True — снимок сохранён.
+        """
+        if user_id is None:
+            suffix = f":{self._sheet_key(sheet)}"
+            keys = [key for key in self._entries if key.endswith(suffix)]
+            if not keys:
+                return False
+            for key in keys:
+                self._entries[key] = (time.monotonic(), values)
+            return True
+        self._entries[self._key(user_id, sheet)] = (time.monotonic(), values)
+        return True
 
     def _entries_with_user(self, sheet: Any, user_id: int | None) -> list[str]:
         """Ключи кэша этого листа (с учётом user_id, если он известен)."""
         if user_id is not None:
             key = self._key(user_id, sheet)
             return [key] if key in self._entries else []
-        suffix = f":{id(sheet)}"
+        suffix = f":{self._sheet_key(sheet)}"
         return [key for key in self._entries if key.endswith(suffix)]
 
     def invalidate(self, user_id: int | None = None) -> None:
@@ -198,9 +242,16 @@ class SheetCache:
 _cache = SheetCache()
 
 
-def _cached_values(sheet: Any, user_id: int | None = None) -> list[list[str]]:
+def _cached_values(
+    sheet: Any, user_id: int | None = None, force: bool = False
+) -> list[list[str]]:
     """Модульный фасад над SheetCache."""
-    return _cache.get_values(sheet, user_id)
+    return _cache.get_values(sheet, user_id, force)
+
+
+def _drop_stale(sheet: Any, user_id: int | None = None) -> None:
+    """Модульный фасад над SheetCache.drop_stale."""
+    _cache.drop_stale(sheet, user_id)
 
 
 def invalidate_cache(user_id: int | None = None) -> None:
@@ -208,11 +259,21 @@ def invalidate_cache(user_id: int | None = None) -> None:
     _cache.invalidate(user_id)
 
 
+def reset_cache_for_tests() -> None:
+    """
+    Полный сброс кэша снимков (только для тестов).
+
+    Нужен, когда лист в тестах не имеет стабильного ключа (``id``/``title``)
+    и разные ``FakeSheet`` попадают в один ключ ``object``.
+    """
+    _cache.invalidate()
+
+
 def _remember_values(
     sheet: Any, values: list[list[str]], user_id: int | None = None
 ) -> bool:
-    """Модульный фасад над SheetCache.replace_values (True — кэш был загружен)."""
-    return bool(_cache.replace_values(sheet, values, user_id))
+    """Модульный фасад над SheetCache.replace_values (True — снимок сохранён)."""
+    return _cache.replace_values(sheet, values, user_id)
 
 
 def _patch_cached_cell(
@@ -282,6 +343,15 @@ def pad_row(row: Sequence[str], width: int) -> list[str]:
     if len(padded) < width:
         padded.extend([""] * (width - len(padded)))
     return padded
+
+
+def _row_for(headers: list[str], source: str, title: str, note_id: str) -> list[str]:
+    """Строка новой заметки во всю ширину шапки (ID, SOURCE, TITLE)."""
+    row = [""] * len(headers)
+    row[id_column_index(headers) - 1] = note_id
+    row[source_column_index(headers) - 1] = source
+    row[title_column_index(headers) - 1] = title
+    return row
 
 
 def _index_of(headers: Sequence[str], name: str) -> int | None:
@@ -375,9 +445,9 @@ class _SheetBound:
     def _resolve_sheet(self) -> Any:
         raise NotImplementedError
 
-    def _all_values(self) -> list[list[str]]:
+    def _all_values(self, force: bool = False) -> list[list[str]]:
         """Весь лист одним запросом (кэшируется по (user_id, лист))."""
-        return _cached_values(self.sheet, self._user_id)
+        return _cached_values(self.sheet, self._user_id, force)
 
     def all_values(self) -> list[list[str]]:
         """Публичный снимок листа — чтобы хендлер сделал ровно один запрос."""
@@ -463,7 +533,7 @@ class NoteRepository(_SheetBound):
         """Все заметки листа (с ID и TITLE), порядок — как в таблице."""
         return self._all_notes()[0]
 
-    def _all_notes(self) -> tuple[list[Note], list[str]]:
+    def _all_notes(self, force: bool = False) -> tuple[list[Note], list[str]]:
         """
         Заметки и шапка одним проходом, с дозаполнением пустых ID.
 
@@ -471,7 +541,7 @@ class NoteRepository(_SheetBound):
         сгенерированный ID, который сразу записывается в ячейку — иначе
         такую заметку нельзя открыть по кнопке в Telegram.
         """
-        values = self._all_values()
+        values = self._all_values(force)
         headers = headers_of(values)
         if not headers:
             return [], []
@@ -562,15 +632,36 @@ class NoteRepository(_SheetBound):
         return exact or partial
 
     def locate(self, note_id: str) -> tuple[int, Note] | None:
-        """(номер строки, заметка) или None, если записи с таким ID нет."""
+        """
+        (номер строки, заметка) или None, если записи с таким ID нет.
+
+        Если в кэшированном снимке ID не нашёлся, кэш помечается устаревшим
+        и лист перечитывается один раз: сразу после ``create`` Google Sheets
+        может отдать снимок без новой строки (задержка репликации).
+        """
+        found = self._locate_in(self._all_notes()[0], note_id)
+        if found is not None:
+            return found
+        _drop_stale(self.sheet, self._user_id)
+        try:
+            notes = self._all_notes(force=True)[0]
+        except Exception as e:
+            # Повторное чтение — страховка: живём на прошлом снимке
+            logger.warning("Re-read after failed locate(%s): %s", note_id, e)
+            return None
+        return self._locate_in(notes, note_id)
+
+    @staticmethod
+    def _locate_in(notes: list[Note], note_id: str) -> tuple[int, Note] | None:
+        """Поиск заметки по ID в готовом списке строк листа."""
         wanted = str(note_id).strip()
-        for note in self._all_notes()[0]:
+        for note in notes:
             if note.note_id == wanted:
                 return note.row_index, note
         return None
 
     def get(self, note_id: str) -> Note | None:
-        """Заметка по ID. Ищется в уже загруженном листе — без лишних запросов."""
+        """Заметка по ID (лист дочитывается, если ID нет в кэше)."""
         found = self.locate(note_id)
         return found[1] if found else None
 
@@ -598,42 +689,76 @@ class NoteRepository(_SheetBound):
         # Шапка из снимка до записи: sort_notes затем опирается на кэш,
         # а не на повторное get_all_values().
         cached = self._all_values()
-        headers = self.headers()
-        if not headers:  # пустой лист без шапки: восстанавливаем базовую
-            headers = list(BASE_HEADERS)
+        headers = headers_of(cached) or list(BASE_HEADERS)
+        if not headers_of(cached):  # пустой лист без шапки: восстанавливаем
             self.sheet.insert_row(headers, index=1, value_input_option="RAW")
             invalidate_cache(self._user_id)
-            cached = []
-        note_id = self.new_id()
+            cached = [list(headers)]
+        new_id = generate_unique_id(self._ids_in(headers, cached))
         source_name = (source or "").strip()
         title_name = (title or "").strip()
 
-        blank_row = self._blank_source_row(headers, source_name, cached)
-        if blank_row is not None:
-            id_col = id_column_index(headers)
-            source_col = source_column_index(headers)
-            title_col = title_column_index(headers)
-            self.sheet.update_cell(blank_row, id_col, note_id)
-            self.sheet.update_cell(blank_row, source_col, source_name)
-            self.sheet.update_cell(blank_row, title_col, title_name)
-            invalidate_cache(self._user_id)
-            self.sort_notes(remember=False)
-            return note_id
+        # Снимок правим в памяти и сортируем, затем пишем одним update:
+        # порядок в кэше и в таблице совпадает всегда, лишних append_row нет.
+        values = self._padded_snapshot(headers, cached)
+        blank_row = self._blank_source_row(headers, source_name, values)
+        row = _row_for(headers, source_name, title_name, new_id)
+        if blank_row is not None and blank_row - 1 < len(values):
+            values[blank_row - 1] = row
+        else:
+            values.append(row)
+        sorted_values = self._sorted_snapshot(headers, values)
+        self._write_snapshot(sorted_values)
+        # Снимок кладём в кэш напрямую: следующий шаг мастера увидит ID,
+        # даже если до create кэш был пуст или истёк по TTL.
+        _remember_values(self.sheet, sorted_values, self._user_id)
+        return new_id
 
-        row = [""] * len(headers)
-        row[id_column_index(headers) - 1] = note_id
-        row[source_column_index(headers) - 1] = source_name
-        row[title_column_index(headers) - 1] = title_name
+    @staticmethod
+    def _ids_in(headers: list[str], values: list[list[str]]) -> set[str]:
+        """ID, которые уже заняты на листе (по сырому снимку)."""
+        id_col = id_column_index(headers) - 1
+        return {cell(row, id_col).strip() for row in values[1:]} - {""}
 
-        self.sheet.append_row(row, value_input_option="RAW")
-        if cached:
-            # Дописываем строку в снимок: sort_notes увидит её без нового чтения.
-            cached.append(pad_row(row, len(headers)))
-        self.sort_notes()
-        return note_id
+    @staticmethod
+    def _padded_snapshot(
+        headers: list[str], values: list[list[str]]
+    ) -> list[list[str]]:
+        """Копия снимка с шапкой и строками во всю ширину шапки."""
+        width = len(headers)
+        return [list(headers)] + [pad_row(row, width) for row in values[1:]]
+
+    @staticmethod
+    def _sorted_snapshot(
+        headers: list[str], values: list[list[str]]
+    ) -> list[list[str]]:
+        """Снимок с шапкой и строками, отсортированными по SOURCE -> TITLE."""
+        width = len(headers)
+        source_col = source_column_index(headers) - 1
+        title_col = title_column_index(headers) - 1
+        data = [pad_row(row, width) for row in values[1:]]
+
+        def key(row: list[str]) -> tuple[int, str, int, str]:
+            source = cell(row, source_col).strip().lower()
+            title = cell(row, title_col).strip().lower()
+            return (not source, source, not title, title)
+
+        data.sort(key=key)
+        return [list(headers), *data]
+
+    def _write_snapshot(self, values: list[list[str]]) -> None:
+        """Пишет снимок в лист одним update (шапка — первой строкой)."""
+        if len(values) < 2:
+            return
+        last_col = column_letter(len(values[0]))
+        self.sheet.update(
+            range_name=f"A2:{last_col}{len(values)}",
+            values=values[1:],
+            value_input_option="RAW",
+        )
 
     def _blank_source_row(
-        self, headers: list[str], source: str, values: list[list[str]] | None = None
+        self, headers: list[str], source: str, values: list[list[str]]
     ) -> int | None:
         """Номер строки-болванки этого источника (SOURCE есть, TITLE пуст)."""
         wanted = source.strip().lower()
@@ -641,8 +766,7 @@ class NoteRepository(_SheetBound):
             return None
         source_col = source_column_index(headers) - 1
         title_col = title_column_index(headers) - 1
-        rows = values if values is not None else self._all_values()
-        for row_index, row in enumerate(rows[1:], start=2):
+        for row_index, row in enumerate(values[1:], start=2):
             if cell(row, title_col).strip():
                 continue
             if cell(row, source_col).strip().lower() == wanted:
@@ -741,11 +865,19 @@ class NoteRepository(_SheetBound):
             return 0
         headers = self.headers()
         source_col = source_column_index(headers)
-        notes = self._count_source_notes(row_indexes, self._all_values(), headers)
+        values = self._all_values()
+        notes = self._count_source_notes(row_indexes, values, headers)
         for row_index in row_indexes:
             self.sheet.update_cell(row_index, source_col, name)
-        invalidate_cache(self._user_id)
-        self.sort_notes()
+            if row_index - 1 < len(values):
+                values[row_index - 1] = pad_row(values[row_index - 1], source_col)
+                values[row_index - 1][source_col - 1] = name
+        # Пересортировываем уже поправленный снимок: без лишнего чтения
+        # и без риска, что сервер отдаст ещё не обновлённые данные.
+        sorted_values = self._sorted_snapshot(headers, values)
+        self._write_snapshot(sorted_values)
+        if not _remember_values(self.sheet, sorted_values, self._user_id):
+            invalidate_cache(self._user_id)
         return notes
 
     def delete_source(self, source: str) -> int:
@@ -781,26 +913,9 @@ class NoteRepository(_SheetBound):
         headers = headers_of(values)
         if not headers or len(values) < 2:
             return
-        width = len(headers)
-        source_col = source_column_index(headers) - 1
-        title_col = title_column_index(headers) - 1
-        data = [pad_row(row, width) for row in values[1:]]
-
-        def key(row: list[str]) -> tuple[int, str, int, str]:
-            source = cell(row, source_col).strip().lower()
-            title = cell(row, title_col).strip().lower()
-            return (not source, source, not title, title)
-
-        data.sort(key=key)
-        last_col = column_letter(width)
-        self.sheet.update(
-            range_name=f"A2:{last_col}{len(data) + 1}",
-            values=data,
-            value_input_option="RAW",
-        )
-        if remember and _remember_values(
-            self.sheet, [list(headers), *data], self._user_id
-        ):
+        data = self._sorted_snapshot(headers, values)
+        self._write_snapshot(data)
+        if remember and _remember_values(self.sheet, data, self._user_id):
             return
         invalidate_cache(self._user_id)
 

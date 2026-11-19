@@ -4,7 +4,12 @@ from __future__ import annotations
 
 from typing import Sequence
 
-from services.sheets import ColumnService, NoteRepository, invalidate_cache
+from services.sheets import (
+    ColumnService,
+    NoteRepository,
+    invalidate_cache,
+    reset_cache_for_tests,
+)
 from tests.fakes import FakeSheet, make_sheet
 
 
@@ -55,6 +60,11 @@ def columns_for(
     sheet = sheet_with_notes(rows, headers)
     invalidate_cache()
     return ColumnService(user_id=user_id, sheet=sheet), sheet
+
+
+def reset_sheet_cache() -> None:
+    """Полный сброс кэша листов (снимки листов без стабильного ключа)."""
+    reset_cache_for_tests()
 
 
 def rows_by_header(sheet: FakeSheet) -> list[dict[str, str]]:

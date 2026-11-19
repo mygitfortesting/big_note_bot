@@ -11,7 +11,8 @@ Telegram-бот заметок (`Python 3.13`, `aiogram 3.x`, `gspread`, `OpenAI
 ## 2. ARCHITECTURE & DATA LAYER
 - `bot.py` — `/start`, `/help`, `/table`, возврат в меню, роутеры, polling.
 - `config.py` — `.env`, `Dispatcher`, доступ к Google Sheets, `notes_sheet_name(user_id)` (`MY_NOTES` для админа, `Notes_{user_id}` для остальных), `setup_user_sheets` (создаёт вкладку и строку в `Users`).
-- `services/sheets.py` — `SheetCache` (TTL 300 с, stale-фоллбэк при `429`), `NoteRepository`, `ColumnService`, хелперы `headers_of`, `cell`, `pad_row`. Никаких вызовов `gspread` вне `sheets.py` и `config.py`.
+- `services/sheets.py` — `SheetCache` (TTL 300 с, stale-фоллбэк при `429`, ключ кэша — стабильный `sheet.id` → `sheet.title`, НЕ `id(sheet)`), `NoteRepository`, `ColumnService`, хелперы `headers_of`, `cell`, `pad_row`. Никаких вызовов `gspread` вне `sheets.py` и `config.py`.
+- **Кэш и запись:** `NoteRepository.create`/`sort_notes`/`add_source` всегда кладут свежий отсортированный снимок в `SheetCache` (даже если кэш был пуст), а `locate` при промахе по ID один раз перечитывает лист с сервера — защита от задержки репликации Google Sheets. Тесты, работающие с разными `FakeSheet` без `id`/`title`, сбрасывают кэш через `tests.factories.reset_sheet_cache()`.
 - `services/callback.py` — единый реестр `Cmd` (команды) и `Cb` (`callback_data`).
 - `services/buttons.py` / `services/keyboards.py` — все тексты и `InlineKeyboardMarkup`.
 - `services/telegram_io.py` — единый выход в Telegram (`ack_callback`, `alert`, `hide_callback_message`, `show_main_menu`, `send_parts`, `status_message`, `send_error_message`).
@@ -28,5 +29,5 @@ Telegram-бот заметок (`Python 3.13`, `aiogram 3.x`, `gspread`, `OpenAI
 ## 4. CODE & TESTING STANDARDS
 - `ruff` (`line-length = 88`, `E,F,I,W`), `ruff format`, `mypy` без ошибок (`tests/` исключён).
 - Весь пользовательский ввод в HTML экранируется через `escape_html`; списки делятся `split_messages` / `send_parts`.
-- Юнит-тесты (`tests/fakes.py`, `tests/factories.py`, `tests/test_sheets.py`, `tests/test_notes.py`) работают полностью офлайн без сети.
+- Юнит-тесты (`tests/fakes.py`, `tests/factories.py`, `tests/test_sheets.py`, `tests/test_sheets_notes.py`, `tests/test_notes_card.py`) работают полностью офлайн без сети.
 - Полные имена при импорте: никаких коротких псевдонимов (`from services import buttons`, а не `as btn`) и дублирующих префиксов в константах (кнопки без `BTN_` — просто `buttons.ADD_NOTE`, `buttons.COLUMNS` и т.п.).

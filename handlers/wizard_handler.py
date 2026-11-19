@@ -24,7 +24,6 @@ from handlers.notes_common import (
     clean_value,
     note_context,
     repo_of,
-    write_note_cell,
 )
 from services import buttons, keyboards
 from services.callback import Cb, Cmd
@@ -157,6 +156,7 @@ async def got_note_title(message: types.Message, state: FSMContext) -> None:
         return
     try:
         note_id = await asyncio.to_thread(repo.create, source, title)
+        # Тот же объект репозитория дальше: его кэш уже содержит новую заметку.
         await start_note_wizard(message, repo, note_id, source, title, state)
     except Exception as e:
         await send_error_message(message, e)
@@ -275,7 +275,7 @@ def _main_menu() -> Callable[..., Awaitable[None]]:
 @wizard_router.message(NoteStates.wizard_step, F.photo)
 async def wizard_got_photo(message: types.Message, state: FSMContext) -> None:
     """Фото на шаге SCREEN: сохраняем file_id и переходим к следующей колонке."""
-    note_id, _, title, columns, step = await _wizard_data(state)
+    note_id, source, title, columns, step = await _wizard_data(state)
     if not note_id or step >= len(columns):
         await state.clear()
         return
@@ -291,20 +291,26 @@ async def wizard_got_photo(message: types.Message, state: FSMContext) -> None:
         return
     file_id = message.photo[-1].file_id
     try:
-        await asyncio.to_thread(
-            write_note_cell, repo, note_id, columns[step][0], file_id
+        new_id = await asyncio.to_thread(
+            _write_or_recreate,
+            repo,
+            note_id,
+            source,
+            title,
+            columns[step][0],
+            file_id,
         )
     except Exception as e:
         await send_error_message(message, e)
         return
     # Промежуточное «saved» не отправляем: сразу следующий шаг мастера.
-    await _advance_wizard(message, state, note_id, title, columns, step)
+    await _advance_wizard(message, state, new_id, title, columns, step)
 
 
 @wizard_router.message(NoteStates.wizard_step, F.text)
 async def wizard_got_text(message: types.Message, state: FSMContext) -> None:
     """Текст на обычном шаге мастера: пишем в ячейку и идём дальше."""
-    note_id, _, title, columns, step = await _wizard_data(state)
+    note_id, source, title, columns, step = await _wizard_data(state)
     if not note_id or step >= len(columns):
         await state.clear()
         return
@@ -317,12 +323,48 @@ async def wizard_got_text(message: types.Message, state: FSMContext) -> None:
         return
     value = clean_value(message.text)
     try:
-        await asyncio.to_thread(write_note_cell, repo, note_id, col_index, value)
+        new_id = await asyncio.to_thread(
+            _write_or_recreate, repo, note_id, source, title, col_index, value
+        )
     except Exception as e:
         await send_error_message(message, e)
         return
     # Промежуточное «saved» не отправляем: сразу следующий шаг мастера.
-    await _advance_wizard(message, state, note_id, title, columns, step)
+    # После пересоздания строки дальше идём по новому ID заметки.
+    await _advance_wizard(message, state, new_id, title, columns, step)
+
+
+def _write_or_recreate(
+    repo: NoteRepository,
+    note_id: str,
+    source: str,
+    title: str,
+    col_index: int,
+    value: str,
+) -> str:
+    """
+    Пишет значение в колонку заметки; возвращает актуальный ID заметки.
+
+    ``locate`` уже перечитывает лист при промахе по ID, поэтому ValueError
+    означает, что строку действительно потеряли (удалена вручную). Тогда
+    заметка создаётся заново с тем же SOURCE/TITLE — мастер не обрывается
+    на первом же поле введённым значением.
+    """
+    try:
+        repo.update_cell_at(_row_index(repo, note_id), col_index, value)
+        return note_id
+    except ValueError:
+        new_id = repo.create(source, title)
+        repo.update_cell_at(_row_index(repo, new_id), col_index, value)
+        return new_id
+
+
+def _row_index(repo: NoteRepository, note_id: str) -> int:
+    """Номер строки заметки; ValueError, если её нет на листе."""
+    row_index = repo.find_row(note_id)
+    if row_index is None:
+        raise ValueError(f"Note {note_id} not found.")
+    return row_index
 
 
 @wizard_router.message(NoteStates.wizard_step)

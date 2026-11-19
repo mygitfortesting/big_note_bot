@@ -14,7 +14,8 @@ from services.sheets import (
     column_letter,
     pad_row,
 )
-from tests.factories import note_row, repo_for, rows_by_header
+from tests.factories import note_row, repo_for, reset_sheet_cache, rows_by_header
+from tests.fakes import FakeSheet
 
 # --- Чистые функции ---
 
@@ -435,3 +436,44 @@ def test_create_and_update_reuse_cached_snapshot() -> None:
     assert updated.value(comment_col) == "After edit"
     assert repo.headers() == list(NOTES_HEADERS)
     assert counting.reads == reads_after_create
+
+
+# --- Устаревший снимок в кэше: locate дочитывает лист ---
+
+
+def test_locate_rereads_sheet_when_cached_snapshot_is_stale() -> None:
+    """ID нет в кэше, но есть в листе — locate сбрасывает кэш и находит его."""
+    repo, sheet = repo_for([note_row("1", "Blog", "Post")])
+    # Кэш уже заполнен снимком без новой строки (имитация задержки репликации)
+    assert repo.headers() == list(NOTES_HEADERS)
+    sheet.rows.append(note_row("2", "Blog", "Fresh"))
+
+    found = repo.locate("2")
+
+    assert found is not None
+    row_index, note = found
+    assert note.field(NOTES_HEADERS, TITLE_HEADER) == "Fresh"
+    assert sheet.rows[row_index - 1][0] == "2"
+    # Повторное чтение уже с кэшем: второго запроса к листу нет
+    assert repo.get("2") is not None
+
+
+def test_locate_rereads_sheet_when_id_appears_in_new_sheet_object() -> None:
+    """
+    gspread пересоздал объект листа: ключ кэша стабилен (по title).
+
+    Снимок старого объекта листа не должен прятать заметку, созданную
+    через новый объект того же листа.
+    """
+    reset_sheet_cache()
+    sheet = FakeSheet(headers=list(NOTES_HEADERS), rows=[note_row("1", "Blog", "a")])
+    setattr(sheet, "title", "Notes_1")
+    repo, _ = repo_for([], user_id=1)
+    repo._sheet = sheet
+    assert [note.note_id for note in repo.list_notes()] == ["1"]
+
+    recreated = FakeSheet(headers=list(NOTES_HEADERS), rows=sheet.rows)
+    setattr(recreated, "title", "Notes_1")
+    fresh = NoteRepository(user_id=1, sheet=recreated)
+
+    assert [note.note_id for note in fresh.list_notes()] == ["1"]
