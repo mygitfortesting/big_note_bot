@@ -62,11 +62,11 @@ class Cb:
     SRC_ALL_NOTES = "src_all"
 
     # --- Мастер заполнения новой заметки ---
-    #: «⏭ Next» — следующая колонка мастера (состояние в FSMContext).
+    #: «⏭ Next» — следующая колонка мастера (``wiz_next:<note_id>``).
     WIZARD_NEXT = "wiz_next"
-    #: «✅ Done» — закончить мастер, оставить поля пустыми.
+    #: «✅ Done» — закончить мастер (``wiz_done:<note_id>``).
     WIZARD_DONE = "wiz_done"
-    #: «➕ Add another note» — ещё одна заметка в тот же источник.
+    #: «➕ Add another note» — ещё одна заметка (``wiz_another:<note_id>``).
     WIZARD_ANOTHER = "wiz_another"
 
     # --- Кнопки с параметрами ---
@@ -212,6 +212,33 @@ class Cb:
         if not note_id or not col_raw.isdigit():
             return None
         return note_id, int(col_raw)
+
+    # --- Мастер заполнения новой заметки ---
+    # ``note_id`` в callback_data — 8 символов, поэтому кнопки мастера
+    # срабатывают даже после рестарта сервера (MemoryStorage пуст).
+
+    @classmethod
+    def wizard_next(cls, note_id: str) -> str:
+        """«⏭ Next» — следующая колонка мастера для заметки ``note_id``."""
+        return cls._join(cls.WIZARD_NEXT, note_id)
+
+    @classmethod
+    def wizard_done(cls, note_id: str) -> str:
+        """«✅ Done» — закончить мастер заметки ``note_id``."""
+        return cls._join(cls.WIZARD_DONE, note_id)
+
+    @classmethod
+    def wizard_another(cls, note_id: str) -> str:
+        """«➕ Add another note» — ещё заметка в источник заметки ``note_id``."""
+        return cls._join(cls.WIZARD_ANOTHER, note_id)
+
+    @classmethod
+    def parse_wizard_note_id(cls, data: str, prefix: str) -> str | None:
+        """``note_id`` из callback ``prefix:<note_id>`` (None, если нет)."""
+        parts = cls._split(data, prefix)
+        if not parts or not parts[0]:
+            return None
+        return parts[0]
 
     # --- Колонки ---
 

@@ -106,19 +106,19 @@ def back_to_sources_button() -> InlineKeyboardButton:
 # --- Кнопки мастера заполнения новой заметки ---
 
 
-def wizard_next_button() -> InlineKeyboardButton:
-    """«⏭ Next» — пропустить текущую колонку мастера."""
-    return _button(buttons.NEXT_FIELD, Cb.WIZARD_NEXT)
+def wizard_next_button(note_id: str) -> InlineKeyboardButton:
+    """«⏭ Next» — пропустить текущую колонку мастера заметки ``note_id``."""
+    return _button(buttons.NEXT_FIELD, Cb.wizard_next(note_id))
 
 
-def wizard_done_button() -> InlineKeyboardButton:
-    """«✅ Done» — закончить мастер и открыть карточку."""
-    return _button(buttons.DONE_NOTE, Cb.WIZARD_DONE)
+def wizard_done_button(note_id: str) -> InlineKeyboardButton:
+    """«✅ Done» — закончить мастер заметки ``note_id`` и открыть карточку."""
+    return _button(buttons.DONE_NOTE, Cb.wizard_done(note_id))
 
 
-def wizard_another_button() -> InlineKeyboardButton:
-    """«➕ Add another note» — снова TITLE для того же источника."""
-    return _button(buttons.ADD_ANOTHER_NOTE, Cb.WIZARD_ANOTHER)
+def wizard_another_button(note_id: str) -> InlineKeyboardButton:
+    """«➕ Add another note» — снова TITLE для источника этой заметки."""
+    return _button(buttons.ADD_ANOTHER_NOTE, Cb.wizard_another(note_id))
 
 
 # --- Кнопки с параметрами ---
@@ -412,17 +412,18 @@ def photo_cancel(note_id: str, source: str) -> InlineKeyboardMarkup:
 # --- Мастер заполнения ---
 
 
-def note_wizard_step() -> InlineKeyboardMarkup:
+def note_wizard_step(note_id: str) -> InlineKeyboardMarkup:
     """
     Клавиатура шага мастера: пропустить, закончить, ещё заметка, меню.
 
     Ввод значения при этом присылается обычным сообщением в чат,
-    поэтому кнопки только управляют сценарием.
+    поэтому кнопки только управляют сценарием. ``note_id`` едет в
+    ``callback_data``: так кнопки работают и после сброса FSMContext.
     """
     return _markup(
         [
-            [wizard_next_button(), wizard_done_button()],
-            [wizard_another_button()],
+            [wizard_next_button(note_id), wizard_done_button(note_id)],
+            [wizard_another_button(note_id)],
             [to_main_row()],
         ]
     )
