@@ -84,6 +84,7 @@ def note_card_lines(
     headers: Sequence[str],
     values: Sequence[str],
     title: str | None = None,
+    spacer: bool = True,
 ) -> list[str]:
     """
     Строки карточки заметки: ТОЛЬКО заполненные колонки.
@@ -93,8 +94,9 @@ def note_card_lines(
     (ID нужен для кнопок, а скриншот отправляется отдельным фото).
 
     Возвращает список блоков с HTML-разметкой; хендлер склеивает их через
-    пустую строку (``"\n\n"``), чтобы поля карточки не слипались. Последний
-    элемент — отступ из символов Брайля: он держит ширину пузыря.
+    пустую строку (``"\n\n"``), чтобы поля карточки не слипались. Если
+    ``spacer`` включён, последний элемент — отступ из символов Брайля:
+    он держит ширину пузыря (в длинном списке заметок он не нужен).
     """
     lines: list[str] = []
     for index, header in enumerate(headers):
@@ -109,7 +111,8 @@ def note_card_lines(
     if title:
         lines.insert(0, f"<b>{escape_html(title)}</b>")
     # Отступ отдельным блоком: не склеивается с последним полем карточки.
-    lines.append(WIDTH_SPACER)
+    if spacer:
+        lines.append(WIDTH_SPACER)
     return lines
 
 
@@ -120,3 +123,20 @@ def note_card_text(
 ) -> str:
     """Готовая карточка: блоки через пустую строку, в конце — отступ."""
     return CARD_BLOCK_SEPARATOR.join(note_card_lines(headers, values, title))
+
+
+#: Визуальный разделитель между заметками в длинном списке.
+NOTE_SEPARATOR = "\n\n━━━━━━━━━━\n\n"
+
+
+def notes_digest_text(source: str, count: int, cards: Sequence[str]) -> str:
+    """
+    Полный текст всех заметок источника.
+
+    ``cards`` — уже готовые карточки (только заполненные поля, без ID/SCREEN
+    и без пустых распорок) в порядке вывода; они разделяются видимой чертой.
+    """
+    head = f"📂 <b>{escape_html(source)}</b> — {count} note(s):"
+    if not cards:
+        return with_min_width(head)
+    return head + NOTE_SEPARATOR + NOTE_SEPARATOR.join(cards)

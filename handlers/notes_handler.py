@@ -36,7 +36,13 @@ from services.telegram_io import (
     show_main_menu,
     status_message,
 )
-from services.text_utils import escape_html, note_card_text, with_min_width
+from services.text_utils import (
+    escape_html,
+    note_card_lines,
+    note_card_text,
+    notes_digest_text,
+    with_min_width,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -759,6 +765,55 @@ async def cb_source_show_notes(
     try:
         notes = await asyncio.to_thread(repo.list_by_source, source)
         await _send_notes_list(callback, repo, source, notes, state)
+    except Exception as e:
+        await send_error_message(callback, e)
+
+
+def _notes_digest(repo: NoteRepository, notes: list[Note]) -> list[str]:
+    """Готовые карточки заметок: только поля, без ID/SCREEN и распорок."""
+    headers = repo.headers()
+    return [
+        "\n\n".join(note_card_lines(headers, note.values, spacer=False))
+        for note in notes
+    ]
+
+
+async def _send_all_notes(
+    event: types.Message | types.CallbackQuery,
+    repo: NoteRepository,
+    index: int,
+    source: str,
+) -> None:
+    """Все заметки источника с полным содержанием (одним или частями)."""
+    notes = await asyncio.to_thread(repo.list_by_source, source)
+    if not notes:
+        await show_main_menu(
+            event,
+            buttons.NO_NOTES.format(source=escape_html(source)),
+            keyboards.source_notes_back(index),
+        )
+        return
+    cards = await asyncio.to_thread(_notes_digest, repo, notes)
+    text = notes_digest_text(source, len(notes), cards)
+    await send_parts(event, text, keyboards.source_notes_back(index))
+
+
+@router.callback_query(F.data.startswith(f"{Cb.SRC_ALL_NOTES}:"))
+async def cb_source_all_notes(callback: types.CallbackQuery, state: FSMContext) -> None:
+    """«📖 Show all notes»: полное содержимое всех заметок источника."""
+    await ack_callback(callback)
+    index = Cb.parse_source_index(callback.data or "", Cb.SRC_ALL_NOTES)
+    if index is None:
+        return
+    saved = await _saved_source(callback, state, index)
+    if saved is None:
+        return
+    source, _ = saved
+    repo = _repo(callback)
+    if repo is None:
+        return
+    try:
+        await _send_all_notes(callback, repo, index, source)
     except Exception as e:
         await send_error_message(callback, e)
 

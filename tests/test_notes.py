@@ -518,12 +518,60 @@ def test_empty_source_manage_screen(use_repo) -> None:
         button.text for row in sent["reply_markup"].inline_keyboard for button in row
     ]
     assert texts == [
+        buttons.SHOW_ALL_NOTES,
         buttons.ADD_NOTE,
         buttons.RENAME_SOURCE,
         buttons.DELETE_SOURCE,
         buttons.BACK,
         buttons.TO_MAIN,
     ]
+
+
+def test_source_actions_show_all_notes(use_repo) -> None:
+    """«📖 Show all notes»: полные поля всех заметок источника."""
+    repo, _ = repo_for(
+        [
+            note_row("1", "Blog", "First", description="Desc one"),
+            note_row("2", "Blog", "Second", comment="Note two"),
+        ]
+    )
+    use_repo(repo)
+    state = FakeState()
+
+    asyncio.run(notes_handler.cb_manage_sources(_callback(Cb.MENU_SOURCES), state))
+    manage_callback = _callback(Cb.src_manage(0))
+    asyncio.run(notes_handler.cb_source_manage(manage_callback, state))
+
+    manage = manage_callback.message.sent[-1]
+    datas = [
+        button.callback_data
+        for row in manage["reply_markup"].inline_keyboard
+        for button in row
+    ]
+    assert buttons.SHOW_ALL_NOTES in [
+        button.text for row in manage["reply_markup"].inline_keyboard for button in row
+    ]
+    assert Cb.src_all_notes(0) in datas
+
+    all_callback = _callback(Cb.src_all_notes(0))
+    asyncio.run(notes_handler.cb_source_all_notes(all_callback, state))
+
+    sent = all_callback.message.sent[-1]
+    text = sent["text"]
+    assert text.startswith("📂 <b>Blog</b> — 2 note(s):")
+    assert "━━━━━━━━━━" in text
+    assert "<b>TITLE:</b> First" in text
+    assert "<b>DESCRIPTION:</b> Desc one" in text
+    assert "<b>TITLE:</b> Second" in text
+    assert "<b>COMMENT:</b> Note two" in text
+    assert "ID" not in text and SCREEN_HEADER not in text
+    back_datas = [
+        button.callback_data
+        for row in sent["reply_markup"].inline_keyboard
+        for button in row
+    ]
+    assert Cb.src_manage(0) in back_datas
+    assert Cb.TO_MAIN in back_datas
 
 
 def test_notes_list_is_numbered_with_code_names(use_repo) -> None:

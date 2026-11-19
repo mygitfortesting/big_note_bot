@@ -55,9 +55,8 @@ def main_menu() -> InlineKeyboardMarkup:
             ],
             [
                 _button(buttons.SOURCES, Cb.MENU_SOURCES),
-                # _button(buttons.BY_SOURCE, Cb.SRC_LIST),
+                _button(buttons.COLUMNS, Cb.MENU_COLUMNS),
             ],
-            [_button(buttons.COLUMNS, Cb.MENU_COLUMNS)],
         ]
     )
 
@@ -170,7 +169,12 @@ def source_actions(
         for position, note_id in enumerate(note_ids[:PAGE_SIZE], start=1)
     ]
     rows = _rows(items, NOTE_NUMBER_ROW)
-    rows.append([_button(buttons.ADD_NOTE, Cb.src_new_note(index))])
+    rows.append(
+        [
+            _button(buttons.SHOW_ALL_NOTES, Cb.src_all_notes(index)),
+            _button(buttons.ADD_NOTE, Cb.src_new_note(index)),
+        ]
+    )
     rows.append(
         [
             _button(buttons.RENAME_SOURCE, Cb.src_rename(index)),
@@ -179,6 +183,11 @@ def source_actions(
     )
     rows.append([_button(buttons.BACK, Cb.MENU_SOURCES), to_main_row()])
     return _markup(rows)
+
+
+def source_notes_back(index: int) -> InlineKeyboardMarkup:
+    """Возврат с длинного списка заметок на экран того же источника."""
+    return _markup([[_button(buttons.BACK, Cb.src_manage(index)), to_main_row()]])
 
 
 def source_delete_confirm(index: int) -> InlineKeyboardMarkup:
@@ -330,6 +339,7 @@ __all__ = [
     "photo_cancel",
     "source_actions",
     "source_delete_confirm",
+    "source_notes_back",
     "search_not_found",
     "sources",
     "sources_manage",

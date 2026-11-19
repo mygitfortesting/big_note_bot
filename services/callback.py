@@ -58,6 +58,8 @@ class Cb:
     SRC_DEL_CONFIRM = "src_del_confirm"
     SRC_SHOW_NOTES = "src_show_notes"
     SRC_NEW_NOTE = "src_new_note"
+    #: «📖 Show all notes»: все заметки источника с полным содержанием.
+    SRC_ALL_NOTES = "src_all"
 
     # --- Кнопки с параметрами ---
     SRC_SELECT = "src_select"
@@ -142,6 +144,11 @@ class Cb:
     def src_new_note(cls, index: int) -> str:
         """Сразу создать заметку для источника ``index`` (0-based)."""
         return cls._join(cls.SRC_NEW_NOTE, index)
+
+    @classmethod
+    def src_all_notes(cls, index: int) -> str:
+        """Все заметки источника ``index`` (0-based) с полным содержанием."""
+        return cls._join(cls.SRC_ALL_NOTES, index)
 
     @classmethod
     def parse_source_index(cls, data: str, prefix: str) -> int | None:
