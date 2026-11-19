@@ -104,7 +104,7 @@ async def show_sources_manage(
         await show_main_menu(event, buttons.NO_SOURCES, keyboards.back_to_main())
         return
     lines = [
-        f"{index}. {escape_html(source)} ({count})"
+        f"{index}. {escape_html(source)} -> {count}"
         for index, (source, count) in enumerate(counts, start=1)
     ]
     text = buttons.SOURCES_MANAGE_PROMPT + "\n\n" + "\n".join(lines)
