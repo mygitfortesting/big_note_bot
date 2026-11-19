@@ -579,15 +579,6 @@ class NoteRepository(_SheetBound):
         found = self.locate(note_id)
         return found[0] if found else None
 
-    def display_title(self, note_id: str) -> str:
-        """TITLE заметки; если пусто — «ID xxx»."""
-        note = self.get(note_id)
-        if note is None:
-            return f"ID {note_id}"
-        headers = self.headers()
-        title = note.value(title_column_index(headers)).strip()
-        return title or f"ID {note.note_id}"
-
     # --- запись ---
 
     def new_id(self) -> str:
@@ -684,18 +675,6 @@ class NoteRepository(_SheetBound):
         self.sort_notes()
         return True
 
-    def update_cell(self, note_id: str, header: str, value: str) -> None:
-        """Записывает значение в колонку с именем ``header`` у заметки ``note_id``."""
-        found = self.locate(note_id)
-        if found is None:
-            return
-        row_index, _ = found
-        col_index = _index_of(self.headers(), header)
-        if col_index is None:
-            raise ValueError(f"Table header has no column '{header}'.")
-        self.sheet.update_cell(row_index, col_index, value)
-        invalidate_cache(self._user_id)
-
     def update_cell_at(self, row_index: int, col_index: int, value: str) -> None:
         """
         Запись ячейки по номерам строки и колонки (1-based).
@@ -733,6 +712,18 @@ class NoteRepository(_SheetBound):
             if cell(row, source_col).strip().lower() == wanted
         ]
 
+    def _count_source_notes(
+        self, row_indexes: list[int], values: list[list[str]], headers: list[str]
+    ) -> int:
+        """Сколько из этих строк — реальные заметки (TITLE заполнен)."""
+        title_col = title_column_index(headers)
+        return sum(
+            1
+            for row_index in row_indexes
+            if row_index - 1 < len(values)
+            and cell(values[row_index - 1], title_col - 1).strip()
+        )
+
     def rename_source(self, old_source: str, new_source: str) -> int:
         """
         Переименовывает источник во ВСЕХ его строках и возвращает их число.
@@ -750,14 +741,7 @@ class NoteRepository(_SheetBound):
             return 0
         headers = self.headers()
         source_col = source_column_index(headers)
-        title_col = title_column_index(headers)
-        values = self._all_values()
-        notes = sum(
-            1
-            for row_index in row_indexes
-            if row_index - 1 < len(values)
-            and cell(values[row_index - 1], title_col - 1).strip()
-        )
+        notes = self._count_source_notes(row_indexes, self._all_values(), headers)
         for row_index in row_indexes:
             self.sheet.update_cell(row_index, source_col, name)
         invalidate_cache(self._user_id)
@@ -775,14 +759,7 @@ class NoteRepository(_SheetBound):
         if not row_indexes:
             return 0
         headers = self.headers()
-        title_col = title_column_index(headers)
-        values = self._all_values()
-        notes = sum(
-            1
-            for row_index in row_indexes
-            if row_index - 1 < len(values)
-            and cell(values[row_index - 1], title_col - 1).strip()
-        )
+        notes = self._count_source_notes(row_indexes, self._all_values(), headers)
         for row_index in reversed(row_indexes):
             self.sheet.delete_rows(row_index)
         invalidate_cache(self._user_id)
@@ -878,14 +855,6 @@ class ColumnService(_SheetBound):
         if screen_col is not None:
             protected.add(screen_col)
         return protected
-
-    def editable_columns(self) -> list[tuple[int, str]]:
-        """(номер, имя) колонок для переименования (кроме ID/SOURCE/TITLE)."""
-        return [
-            (index, header)
-            for index, header in enumerate(self.headers(), start=1)
-            if header.strip().upper() not in RENAME_PROTECTED_HEADERS
-        ]
 
     def comment_column(self) -> int | None:
         """Номер колонки COMMENT или None, если её нет в шапке."""

@@ -18,12 +18,7 @@ from aiogram.fsm.state import State, StatesGroup
 
 from services import buttons, keyboards
 from services.callback import Cb
-from services.sheets import (
-    ID_HEADER,
-    SOURCE_HEADER,
-    TITLE_HEADER,
-    ColumnService,
-)
+from services.sheets import RENAME_PROTECTED_HEADERS, ColumnService
 from services.telegram_io import (
     ack_callback,
     alert,
@@ -37,9 +32,6 @@ from services.text_utils import escape_html, with_min_width
 logger = logging.getLogger(__name__)
 
 router = Router(name="columns")
-
-#: Колонки, которые нельзя переименовывать (удаление запрещает ColumnService).
-LOCKED_FOR_RENAME = {ID_HEADER, SOURCE_HEADER, TITLE_HEADER}
 
 
 class ColumnStates(StatesGroup):
@@ -241,7 +233,7 @@ async def cb_column_rename(callback: types.CallbackQuery, state: FSMContext) -> 
         await alert(callback, "⚠️ This column no longer exists.")
         return
     field = headers[col_index - 1]
-    if field.strip().upper() in LOCKED_FOR_RENAME:
+    if field.strip().upper() in RENAME_PROTECTED_HEADERS:
         await alert(callback, f"🔒 {field} is a service column.")
         return
     await state.set_state(ColumnStates.wait_rename)
@@ -276,14 +268,13 @@ async def got_renamed_column(message: types.Message, state: FSMContext) -> None:
 # --- Порядок ---
 
 
-def _ordered_text(svc: ColumnService) -> str:
+def _ordered_text(columns: list[tuple[int, str]]) -> str:
     """
     Нумерованный список изменяемых колонок для ввода порядка.
 
     В конце — готовая для копирования строка текущих номеров, чтобы
     пользователь поменял в ней цифры местами и отправил обратно.
     """
-    columns = _editable_columns(svc)
     lines = [
         f"{position}. <code>{escape_html(name)}</code>"
         for position, (_, name) in enumerate(columns, start=1)
@@ -301,16 +292,16 @@ async def cb_column_reorder(callback: types.CallbackQuery, state: FSMContext) ->
     if svc is None:
         return
     try:
-        text = await asyncio.to_thread(_ordered_text, svc)
-        total = len(await asyncio.to_thread(_editable_columns, svc))
+        # Колонки читаем один раз и передаём в форматирование текста.
+        columns = await asyncio.to_thread(_editable_columns, svc)
     except Exception as e:
         await send_error_message(callback, e)
         return
-    if total < 2:
+    if len(columns) < 2:
         await alert(callback, "⚠️ There is nothing to reorder yet.")
         return
     await state.set_state(ColumnStates.wait_order)
-    await show_main_menu(callback, text, keyboards.columns_cancel())
+    await show_main_menu(callback, _ordered_text(columns), keyboards.columns_cancel())
 
 
 @router.callback_query(ColumnStates.wait_order, F.data == Cb.CANCEL_INPUT)
