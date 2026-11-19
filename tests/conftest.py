@@ -12,7 +12,7 @@ from handlers import columns_handler
 from services.callback import Cb
 from services.sheets import NoteRepository
 from services.text_utils import escape_html
-from tests.fakes import FakeCallback
+from tests.fakes import FakeCallback, FakeMessage
 
 #: Имена модулей с собственной ссылкой ``repo_of``. Берём модули через
 #: ``sys.modules``: так подмена находит и реэкспорт в ``notes_handler``.
@@ -68,6 +68,11 @@ def callback(data: str, user_id: int = 1) -> FakeCallback:
     return FakeCallback(data, user_id)
 
 
+def message(text: str = "", user_id: int = 1) -> FakeMessage:
+    """FakeMessage-двойник для handlers, ожидающих ``types.Message``."""
+    return FakeMessage(text, user_id)
+
+
 def flat(markup: Any) -> list[Any]:
     """Все кнопки клавиатуры одним списком."""
     return [button for row in markup.inline_keyboard for button in row]
@@ -78,6 +83,7 @@ __all__ = [
     "callback",
     "escape_html",
     "flat",
+    "message",
     "use_repo",
     "use_service",
 ]

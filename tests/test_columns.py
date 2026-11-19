@@ -11,9 +11,9 @@ from services import buttons
 from services.callback import Cb
 from services.sheets import ColumnService
 from services.text_utils import WIDTH_SPACER
-from tests.conftest import callback, flat
+from tests.conftest import callback, flat, message
 from tests.factories import columns_for
-from tests.fakes import FakeMessage, FakeSheet, FakeState, FakeUser
+from tests.fakes import FakeSheet, FakeState, FakeUser
 
 #: Фикстура ``use_service`` из ``tests.conftest``.
 UseService = Callable[[ColumnService], ColumnService]
@@ -112,14 +112,14 @@ def test_change_order_full_flow(use_service: UseService) -> None:
     assert Cb.CANCEL_INPUT in datas
     assert state.state == columns_handler.ColumnStates.wait_order
 
-    message = FakeMessage("2 1 3", user_id=1)
-    asyncio.run(columns_handler.got_column_order(message, state))
+    order_message = message("2 1 3", user_id=1)
+    asyncio.run(columns_handler.got_column_order(order_message, state))
 
     assert sheet.rows[0][3:6] == ["URL", "DESCRIPTION", "SCREEN"]
     assert sheet.rows[0][:3] == ["ID", "SOURCE", "TITLE"]
     assert sheet.rows[0][-1] == "COMMENT"
     assert state.state is None
-    assert "1. <code>URL</code>" in message.sent[-1]["text"]
+    assert "1. <code>URL</code>" in order_message.sent[-1]["text"]
 
 
 def test_order_cancel_returns_to_columns(use_service: UseService) -> None:
@@ -144,11 +144,11 @@ def test_bad_order_keeps_user_in_order_state(use_service: UseService) -> None:
     asyncio.run(columns_handler.cb_column_reorder(callback(Cb.COL_REORDER), state))
     before = list(sheet.rows[0])
 
-    message = FakeMessage("1 1", user_id=1)
-    asyncio.run(columns_handler.got_column_order(message, state))
+    bad_message = message("1 1", user_id=1)
+    asyncio.run(columns_handler.got_column_order(bad_message, state))
 
     assert sheet.rows[0] == before
-    assert "⚠️" in message.sent[-1]["text"]
+    assert "⚠️" in bad_message.sent[-1]["text"]
     assert state.state == columns_handler.ColumnStates.wait_order
 
 
@@ -169,11 +169,11 @@ def test_columns_menu_add_column_prompt(use_service: UseService) -> None:
     """«➕ Add column» спрашивает имя новой колонки."""
     service, _ = columns_for()
     use_service(service)
-    message = FakeMessage("", user_id=1)
-    message.from_user = FakeUser(1)
+    add_message = message("", user_id=1)
+    add_message.from_user = FakeUser(1)
     state = FakeState()
 
-    asyncio.run(columns_handler.cb_column_add(message, state))
+    asyncio.run(columns_handler.cb_column_add(add_message, state))
 
     assert state.state == columns_handler.ColumnStates.wait_new_name
 
@@ -183,13 +183,13 @@ def test_new_column_gets_into_numbered_list(use_service: UseService) -> None:
     service, sheet = columns_for()
     use_service(service)
     state = FakeState()
-    message = FakeMessage("CONTACT", user_id=1)
+    column_message = message("CONTACT", user_id=1)
     asyncio.run(state.set_state(columns_handler.ColumnStates.wait_new_name))
 
-    asyncio.run(columns_handler.got_new_column_name(message, state))
+    asyncio.run(columns_handler.got_new_column_name(column_message, state))
 
     assert "CONTACT" in sheet.rows[0]
-    body = message.sent[-1]["text"]
+    body = column_message.sent[-1]["text"]
     assert "4. <code>CONTACT</code>" in body
     assert body.startswith(buttons.COLUMNS_PROMPT)
     assert NOTES_HEADERS[0] in body

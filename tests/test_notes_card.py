@@ -24,9 +24,9 @@ from services.text_utils import (
     split_messages,
     with_min_width,
 )
-from tests.conftest import flat
+from tests.conftest import flat, message
 from tests.factories import note_row, repo_for, rows_by_header
-from tests.fakes import FakeMessage, FakeState
+from tests.fakes import FakeState
 
 #: Фикстура ``use_repo``: замена ``repo_of`` репозиторием теста.
 UseRepo = Callable[[NoteRepository], NoteRepository]
@@ -191,10 +191,10 @@ def test_screenshot_saves_file_id_into_screen(
     use_repo(repo)
     state = FakeState()
     asyncio.run(state.update_data(note_id="1"))
-    message = FakeMessage("", user_id=7)
-    message.photo = [_Photo("small"), _Photo("big_file_id")]
+    photo_message = message("", user_id=7)
+    photo_message.photo = [_Photo("small"), _Photo("big_file_id")]
 
-    asyncio.run(notes_handler.got_photo(message, state))
+    asyncio.run(notes_handler.got_photo(photo_message, state))
 
     data = rows_by_header(sheet)
     assert data[0][SCREEN_HEADER] == "big_file_id"
@@ -213,10 +213,10 @@ def test_screenshot_uses_screen_column_not_comment(
     use_repo(repo)
     state = FakeState()
     asyncio.run(state.update_data(note_id="1"))
-    message = FakeMessage("", user_id=7)
-    message.photo = [_Photo("rating_safe_id")]
+    rating_message = message("", user_id=7)
+    rating_message.photo = [_Photo("rating_safe_id")]
 
-    asyncio.run(notes_handler.got_photo(message, state))
+    asyncio.run(notes_handler.got_photo(rating_message, state))
 
     data = rows_by_header(sheet)
     assert data[0][SCREEN_HEADER] == "rating_safe_id"
@@ -233,13 +233,13 @@ def test_screenshot_without_photo_sends_warning(
     use_repo(repo)
     state = FakeState()
     asyncio.run(state.update_data(note_id="1"))
-    message = FakeMessage("", user_id=7)
-    message.photo = []
+    empty_photo_message = message("", user_id=7)
+    empty_photo_message.photo = []
 
-    asyncio.run(notes_handler.got_photo(message, state))
+    asyncio.run(notes_handler.got_photo(empty_photo_message, state))
 
-    assert len(message.sent) == 1
-    assert "Please send a photo" in message.sent[0]["text"]
+    assert len(empty_photo_message.sent) == 1
+    assert "Please send a photo" in empty_photo_message.sent[0]["text"]
     assert sheet.rows[1] == note_row("1", "Blog", "Post")
     assert state.state is None
 
@@ -256,13 +256,13 @@ def test_screenshot_without_screen_column_reports_error(
     use_repo(repo)
     state = FakeState()
     asyncio.run(state.update_data(note_id="1"))
-    message = FakeMessage("", user_id=7)
-    message.photo = [_Photo("file_id")]
+    no_screen_message = message("", user_id=7)
+    no_screen_message.photo = [_Photo("file_id")]
 
-    asyncio.run(notes_handler.got_photo(message, state))
+    asyncio.run(notes_handler.got_photo(no_screen_message, state))
 
-    assert len(message.sent) == 1
-    assert "SCREEN" in message.sent[0]["text"]
+    assert len(no_screen_message.sent) == 1
+    assert "SCREEN" in no_screen_message.sent[0]["text"]
     assert sheet.rows[1] == ["1", "Blog", "Post", "", "", ""]
     assert state.state is None
 
@@ -278,15 +278,17 @@ def test_search_by_title_opens_single_card(
         [note_row("1", "Blog", "FlexiTech"), note_row("2", "Blog", "Yandex")]
     )
     use_repo(repo)
-    message = FakeMessage("flexitech", user_id=1)
+    search_message = message("flexitech", user_id=1)
 
-    asyncio.run(notes_handler.search_by_title(message))
+    asyncio.run(notes_handler.search_by_title(search_message))
 
-    assert len(message.sent) == 1
-    text = message.sent[-1]["text"]
+    assert len(search_message.sent) == 1
+    text = search_message.sent[-1]["text"]
     assert "FlexiTech" in text
     assert "yandex" not in text.lower()
-    datas = [button.callback_data for button in flat(message.sent[-1]["reply_markup"])]
+    datas = [
+        button.callback_data for button in flat(search_message.sent[-1]["reply_markup"])
+    ]
     assert Cb.note_edit_menu("1") in datas
 
 
@@ -301,11 +303,11 @@ def test_search_by_title_lists_several_matches(
         ]
     )
     use_repo(repo)
-    message = FakeMessage("yandex", user_id=1)
+    multi_message = message("yandex", user_id=1)
 
-    asyncio.run(notes_handler.search_by_title(message))
+    asyncio.run(notes_handler.search_by_title(multi_message))
 
-    sent = message.sent[-1]
+    sent = multi_message.sent[-1]
     assert "1. <code>Yandex Zen</code> (<i>Blog</i>)" in sent["text"]
     assert "2. <code>Yandex Music</code> (<i>News</i>)" in sent["text"]
     keyboard = flat(sent["reply_markup"])
@@ -321,11 +323,11 @@ def test_search_by_title_nothing_found(
     """Ничего не нашлось — сообщение с экранированным запросом."""
     repo, _ = repo_for([note_row("1", "Blog", "FlexiTech")])
     use_repo(repo)
-    message = FakeMessage("<script>", user_id=1)
+    nothing_message = message("<script>", user_id=1)
 
-    asyncio.run(notes_handler.search_by_title(message))
+    asyncio.run(notes_handler.search_by_title(nothing_message))
 
-    sent = message.sent[-1]
+    sent = nothing_message.sent[-1]
     text = sent["text"]
     assert text.startswith(buttons.NOTHING_FOUND.split("{")[0])
     assert "&lt;script&gt;" in text
@@ -341,11 +343,11 @@ def test_search_ignores_commands(
     """Слэш-команды не перехватываются поиском."""
     repo, _ = repo_for([note_row("1", "Blog", "FlexiTech")])
     use_repo(repo)
-    message = FakeMessage("/start", user_id=1)
+    command_message = message("/start", user_id=1)
 
-    asyncio.run(notes_handler.search_by_title(message))
+    asyncio.run(notes_handler.search_by_title(command_message))
 
-    assert message.sent == []
+    assert command_message.sent == []
 
 
 # --- Вспомогательные тесты текста ---
@@ -362,12 +364,12 @@ def test_source_navigation_buttons(
 
     repo, _ = repo_for([note_row("1", "Blog", "a")])
     use_repo(repo)
-    message = FakeMessage("", user_id=1)
+    title_message = message("", user_id=1)
     state = FakeState()
 
-    asyncio.run(notes_handler.ask_note_title(message, state, "Blog"))
+    asyncio.run(notes_handler.ask_note_title(title_message, state, "Blog"))
 
-    prompt = message.sent[-1]
+    prompt = title_message.sent[-1]
     title_datas = [button.callback_data for button in flat(prompt["reply_markup"])]
     assert Cb.CANCEL_INPUT in title_datas
     assert Cb.TO_MAIN in title_datas

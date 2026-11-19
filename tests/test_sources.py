@@ -17,9 +17,9 @@ from services.sheets import (
     TITLE_HEADER,
     NoteRepository,
 )
-from tests.conftest import callback, flat
+from tests.conftest import callback, flat, message
 from tests.factories import note_row, repo_for, rows_by_header
-from tests.fakes import FakeMessage, FakeState
+from tests.fakes import FakeState
 
 #: Фикстура ``use_repo`` из ``tests.conftest``.
 UseRepo = Callable[[NoteRepository], NoteRepository]
@@ -38,14 +38,14 @@ def test_new_source_is_added_as_blank_source(use_repo: UseRepo) -> None:
     """«🗂 Add source»: источник сохраняется сразу, без заметки и с 0."""
     repo, sheet = repo_for([])
     use_repo(repo)
-    message = FakeMessage("Instagram", user_id=1)
+    source_message = message("Instagram", user_id=1)
     state = FakeState()
     asyncio.run(state.set_state(NoteStates.wait_source))
 
-    asyncio.run(sources_handler.got_new_source(message, state))
+    asyncio.run(sources_handler.got_new_source(source_message, state))
 
     assert state.state is None
-    assert any("Source added" in item["text"] for item in message.sent)
+    assert any("Source added" in item["text"] for item in source_message.sent)
     # Шапка + строка-болванка: только SOURCE, без ID и TITLE.
     assert len(sheet.rows) == 2
     assert sheet.rows[1][0] == ""  # ID болванке не выдан
@@ -260,8 +260,8 @@ def test_source_actions_add_note_skips_source_choice(use_repo: UseRepo) -> None:
     prompt = add_callback.message.sent[-1]
     assert "Source: <b>Blog</b>" in prompt["text"]
 
-    message = FakeMessage("Fresh", user_id=1)
-    asyncio.run(wizard_handler.got_note_title(message, state))
+    title_message = message("Fresh", user_id=1)
+    asyncio.run(wizard_handler.got_note_title(title_message, state))
 
     data = rows_by_header(sheet)
     assert [row[SOURCE_HEADER] for row in data] == ["Blog", "Blog"]
@@ -318,16 +318,20 @@ def test_sources_menu_rename_flow(use_repo: UseRepo) -> None:
     prompt_datas = [button.callback_data for button in flat(prompt["reply_markup"])]
     assert Cb.CANCEL_INPUT in prompt_datas
 
-    message = FakeMessage("Podcast", user_id=1)
-    asyncio.run(sources_handler.got_renamed_source(message, state))
+    rename_message = message("Podcast", user_id=1)
+    asyncio.run(sources_handler.got_renamed_source(rename_message, state))
 
-    assert any("Updated notes: <b>2</b>" in item["text"] for item in message.sent)
+    assert any(
+        "Updated notes: <b>2</b>" in item["text"] for item in rename_message.sent
+    )
     data = rows_by_header(sheet)
     assert {row[SOURCE_HEADER] for row in data} == {"Podcast"}
     # Отчёт и список заметок — всего 2 сообщения (без общего списка источников).
-    assert len(message.sent) == 2
-    assert "1. Podcast (2)" not in message.sent[-1]["text"]
-    assert any("<b>Podcast</b> — 2 note(s):" in item["text"] for item in message.sent)
+    assert len(rename_message.sent) == 2
+    assert "1. Podcast (2)" not in rename_message.sent[-1]["text"]
+    assert any(
+        "<b>Podcast</b> — 2 note(s):" in item["text"] for item in rename_message.sent
+    )
     assert state.data["source_list"] == ["Podcast"]
     assert state.state is None
 
