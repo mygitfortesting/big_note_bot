@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Callable
 
 from config import NOTES_HEADERS
 from handlers import notes_handler
@@ -15,11 +16,27 @@ from services.sheets import (
     SOURCE_HEADER,
     TITLE_HEADER,
     Note,
+    NoteRepository,
 )
 from services.text_utils import note_card_lines, split_messages
 from tests.conftest import flat
 from tests.factories import note_row, repo_for, rows_by_header
 from tests.fakes import FakeMessage, FakeState
+
+#: Фикстура ``use_repo``: замена ``repo_of`` репозиторием теста.
+UseRepo = Callable[[NoteRepository], NoteRepository]
+
+
+def _make_context(headers: list[str] | None = None, **fields: str) -> NoteContext:
+    """``NoteContext`` из значений по именам колонок (а не позициями)."""
+    names = list(headers) if headers is not None else list(NOTES_HEADERS)
+    values = [fields.get(name, "") for name in names]
+    return NoteContext(
+        note=Note(2, values),
+        headers=names,
+        source=fields.get(SOURCE_HEADER, ""),
+    )
+
 
 # --- Карточка: только заполненные поля ---
 
@@ -73,10 +90,12 @@ def test_card_shows_custom_columns() -> None:
 
 def test_card_fields_separated_by_blank_line() -> None:
     """Финальный текст карточки разделяет поля пустой строкой."""
-    ctx = NoteContext(
-        note=Note(2, ["id1", "Blog", "Post", "Desc", "", "", "Nice"]),
-        headers=list(NOTES_HEADERS),
-        source="Blog",
+    ctx = _make_context(
+        ID="id1",
+        SOURCE="Blog",
+        TITLE="Post",
+        DESCRIPTION="Desc",
+        COMMENT="Nice",
     )
 
     blocks = ctx.card_text().split("\n\n")
@@ -88,11 +107,7 @@ def test_card_fields_separated_by_blank_line() -> None:
 
 def test_note_context_editable_columns_exclude_id_and_screen() -> None:
     """Править текстом можно всё, кроме ID и SCREEN."""
-    ctx = NoteContext(
-        note=Note(2, ["id1", "Blog", "Post", "", "", "", ""]),
-        headers=list(NOTES_HEADERS),
-        source="Blog",
-    )
+    ctx = _make_context(ID="id1", SOURCE="Blog", TITLE="Post")
     editable = [name for _, name in ctx.editable_columns()]
 
     assert "ID" not in editable
@@ -103,16 +118,13 @@ def test_note_context_editable_columns_exclude_id_and_screen() -> None:
 
 def test_note_context_reads_screen_file_id() -> None:
     """file_id скриншота читается из колонки SCREEN."""
-    ctx = NoteContext(
-        note=Note(2, ["id1", "Blog", "Post", "", "", "FILE_ID", ""]),
-        headers=list(NOTES_HEADERS),
-        source="Blog",
-    )
+    ctx = _make_context(SOURCE="Blog", TITLE="Post", SCREEN="FILE_ID")
+
     assert ctx.screen == "FILE_ID"
 
 
-def test_note_card_has_only_four_buttons() -> None:
-    """В карточке нет кнопок правки отдельных полей — только 4 кнопки."""
+def test_note_card_buttons_layout() -> None:
+    """В карточке ровно пять кнопок и нет правки отдельных полей."""
     markup = keyboards.note_card("id1", "Blog")
     texts = [button.text for button in flat(markup)]
 
@@ -123,9 +135,6 @@ def test_note_card_has_only_four_buttons() -> None:
         buttons.BACK,
         buttons.TO_MAIN,
     ]
-    datas = [button.callback_data for button in flat(markup)]
-    assert Cb.note_edit_menu("id1") in datas
-    assert Cb.note_edit_cell("id1", 2) not in datas
     field_labels = (
         f"✏️ {SOURCE_HEADER}",
         f"✏️ {TITLE_HEADER}",
@@ -136,14 +145,19 @@ def test_note_card_has_only_four_buttons() -> None:
     assert not any(label in texts for label in field_labels)
 
 
+def test_note_card_edit_button_opens_menu() -> None:
+    """Кнопка правки открывает меню колонок, а не правит ячейку сразу."""
+    markup = keyboards.note_card("id1", "Blog")
+    datas = [button.callback_data for button in flat(markup)]
+
+    assert Cb.note_edit_menu("id1") in datas
+    assert Cb.note_edit_cell("id1", 2) not in datas
+
+
 def test_edit_field_accepts_any_column_except_id_and_screen() -> None:
     """Полевая правка доступна для любой колонки, кроме ID и SCREEN."""
     headers = [*NOTES_HEADERS[:-1], "RATING", COMMENT_HEADER]
-    ctx = NoteContext(
-        note=Note(2, ["id1", "Shop", "Item", "", "", "", "", ""]),
-        headers=headers,
-        source="Shop",
-    )
+    ctx = _make_context(headers=headers, SOURCE="Shop", TITLE="Item")
     markup = keyboards.edit_fields_only(ctx.editable_columns(), "id1")
     datas = [button.callback_data for button in flat(markup)]
 
@@ -164,7 +178,9 @@ class _Photo:
         self.file_id = file_id
 
 
-def test_screenshot_saves_file_id_into_screen(use_repo) -> None:
+def test_screenshot_saves_file_id_into_screen(
+    use_repo: UseRepo,
+) -> None:
     """Фото приходит сценарием: ``message.photo[-1].file_id`` пишется в SCREEN."""
     repo, sheet = repo_for([note_row("1", "Blog", "Post")])
     use_repo(repo)
@@ -180,20 +196,78 @@ def test_screenshot_saves_file_id_into_screen(use_repo) -> None:
     assert state.state is None
 
 
-def test_screenshot_uses_screen_column_not_comment(use_repo) -> None:
+def test_screenshot_uses_screen_column_not_comment(
+    use_repo: UseRepo,
+) -> None:
     """SCREEN берётся по имени колонки, даже если пользовательские вклинились."""
     headers = [*NOTES_HEADERS[:-1], "RATING", COMMENT_HEADER]
-    repo, sheet = repo_for([["1", "Blog", "Post", "", "", "", "", ""]], headers=headers)
+    repo, sheet = repo_for(
+        [["1", "Blog", "Post", "", "", "", "", ""]],
+        headers=headers,
+    )
     use_repo(repo)
-    col = notes_handler.screen_column(repo)
+    state = FakeState()
+    asyncio.run(state.update_data(note_id="1"))
+    message = FakeMessage("", user_id=7)
+    message.photo = [_Photo("rating_safe_id")]
 
-    assert sheet.rows[0][col - 1] == SCREEN_HEADER
+    asyncio.run(notes_handler.got_photo(message, state))
+
+    data = rows_by_header(sheet)
+    assert data[0][SCREEN_HEADER] == "rating_safe_id"
+    assert data[0]["RATING"] == ""
+    assert data[0][COMMENT_HEADER] == ""
+    assert state.state is None
+
+
+def test_screenshot_without_photo_sends_warning(
+    use_repo: UseRepo,
+) -> None:
+    """Пустой список фото: предупреждение без записи в таблицу."""
+    repo, sheet = repo_for([note_row("1", "Blog", "Post")])
+    use_repo(repo)
+    state = FakeState()
+    asyncio.run(state.update_data(note_id="1"))
+    message = FakeMessage("", user_id=7)
+    message.photo = []
+
+    asyncio.run(notes_handler.got_photo(message, state))
+
+    assert len(message.sent) == 1
+    assert "Please send a photo" in message.sent[0]["text"]
+    assert sheet.rows[1] == note_row("1", "Blog", "Post")
+    assert state.state is None
+
+
+def test_screenshot_without_screen_column_reports_error(
+    use_repo: UseRepo,
+) -> None:
+    """Нет колонки SCREEN: ValueError перехвачен, бот не падает."""
+    headers = [header for header in NOTES_HEADERS if header != SCREEN_HEADER]
+    repo, sheet = repo_for(
+        [["1", "Blog", "Post", "", "", ""]],
+        headers=headers,
+    )
+    use_repo(repo)
+    state = FakeState()
+    asyncio.run(state.update_data(note_id="1"))
+    message = FakeMessage("", user_id=7)
+    message.photo = [_Photo("file_id")]
+
+    asyncio.run(notes_handler.got_photo(message, state))
+
+    assert len(message.sent) == 1
+    assert "SCREEN" in message.sent[0]["text"]
+    assert sheet.rows[1] == ["1", "Blog", "Post", "", "", ""]
+    assert state.state is None
 
 
 # --- Поиск по названию ---
 
 
-def test_search_by_title_opens_single_card(use_repo) -> None:
+def test_search_by_title_opens_single_card(
+    use_repo: UseRepo,
+) -> None:
     """Уникальное имя, отправленное текстом, сразу открывает карточку."""
     repo, _ = repo_for(
         [note_row("1", "Blog", "FlexiTech"), note_row("2", "Blog", "Yandex")]
@@ -211,7 +285,9 @@ def test_search_by_title_opens_single_card(use_repo) -> None:
     assert Cb.note_edit_menu("1") in datas
 
 
-def test_search_by_title_lists_several_matches(use_repo) -> None:
+def test_search_by_title_lists_several_matches(
+    use_repo: UseRepo,
+) -> None:
     """Несколько совпадений — нумерованный список с кнопками-номерами."""
     repo, _ = repo_for(
         [
@@ -234,7 +310,9 @@ def test_search_by_title_lists_several_matches(use_repo) -> None:
     )
 
 
-def test_search_by_title_nothing_found(use_repo) -> None:
+def test_search_by_title_nothing_found(
+    use_repo: UseRepo,
+) -> None:
     """Ничего не нашлось — сообщение с экранированным запросом."""
     repo, _ = repo_for([note_row("1", "Blog", "FlexiTech")])
     use_repo(repo)
@@ -252,7 +330,9 @@ def test_search_by_title_nothing_found(use_repo) -> None:
     assert Cb.TO_MAIN in datas
 
 
-def test_search_ignores_commands(use_repo) -> None:
+def test_search_ignores_commands(
+    use_repo: UseRepo,
+) -> None:
     """Слэш-команды не перехватываются поиском."""
     repo, _ = repo_for([note_row("1", "Blog", "FlexiTech")])
     use_repo(repo)
@@ -266,7 +346,9 @@ def test_search_ignores_commands(use_repo) -> None:
 # --- Вспомогательные тесты текста ---
 
 
-def test_source_navigation_buttons(use_repo) -> None:
+def test_source_navigation_buttons(
+    use_repo: UseRepo,
+) -> None:
     """Notes by source — без Cancel; ввод TITLE — с Cancel."""
     by_source = keyboards.sources_with_counts([("Blog", 2)])
     datas = [button.callback_data for button in flat(by_source)]
