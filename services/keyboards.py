@@ -153,30 +153,32 @@ def sources_manage(count: int) -> InlineKeyboardMarkup:
     ]
     rows = _rows(numbers, SOURCE_NUMBER_ROW)
     rows.append([_button(buttons.NEW_SOURCE, Cb.SRC_ADD), to_main_row()])
-    # rows.append([to_main_row()])
     return _markup(rows)
 
 
-def source_actions(index: int) -> InlineKeyboardMarkup:
+def source_actions(
+    index: int, note_ids: Sequence[str] = (), source: str = ""
+) -> InlineKeyboardMarkup:
     """
-    Действия над источником.
+    Экран источника: сразу заметки номерами и действия над источником.
 
-    Первый ряд — заметки источника, второй — правка/удаление источника,
-    третий — возврат в список источников и главное меню.
+    Кнопки-номера открывают карточку заметки (в callback_data — её ID),
+    дальше — добавление заметки, правка/удаление источника и навигация.
     """
-    return _markup(
+    items = [
+        _button(str(position), Cb.note_view(note_id, source))
+        for position, note_id in enumerate(note_ids[:PAGE_SIZE], start=1)
+    ]
+    rows = _rows(items, NOTE_NUMBER_ROW)
+    rows.append([_button(buttons.ADD_NOTE, Cb.src_new_note(index))])
+    rows.append(
         [
-            [
-                _button(buttons.SHOW_NOTES, Cb.src_show_notes(index)),
-                _button(buttons.ADD_NOTE, Cb.src_new_note(index)),
-            ],
-            [
-                _button(buttons.RENAME_SOURCE, Cb.src_rename(index)),
-                _button(buttons.DELETE_SOURCE, Cb.src_del(index)),
-            ],
-            [_button(buttons.BACK, Cb.MENU_SOURCES), to_main_row()],
+            _button(buttons.RENAME_SOURCE, Cb.src_rename(index)),
+            _button(buttons.DELETE_SOURCE, Cb.src_del(index)),
         ]
     )
+    rows.append([_button(buttons.BACK, Cb.MENU_SOURCES), to_main_row()])
+    return _markup(rows)
 
 
 def source_delete_confirm(index: int) -> InlineKeyboardMarkup:
@@ -297,9 +299,9 @@ def column_actions(col_index: int, can_delete: bool) -> InlineKeyboardMarkup:
     Порядок меняется на главном экране ``📋 Columns``. Удаление скрыто
     для защищённых колонок (например, ``SCREEN``).
     """
-    edit = [_button(buttons.RENAME_SOURCE, Cb.col_rename(col_index))]
+    edit = [_button(buttons.RENAME_COLUMN_SHORT, Cb.col_rename(col_index))]
     if can_delete:
-        edit.append(_button(buttons.DELETE_SOURCE, Cb.col_del(col_index)))
+        edit.append(_button(buttons.DELETE_COLUMN_SHORT, Cb.col_del(col_index)))
     rows: list[list[InlineKeyboardButton]] = [
         edit,
         [_button(buttons.BACK, Cb.MENU_COLUMNS), to_main_row()],

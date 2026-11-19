@@ -435,21 +435,27 @@ def test_sources_menu_numbers_and_opens_actions(use_repo) -> None:
     asyncio.run(notes_handler.cb_source_manage(manage_callback, state))
 
     action = manage_callback.message.sent[-1]
-    assert "Notes:" not in action["text"]
-    assert "<b>Blog</b>" in action["text"]
-    assert "Choose an action:" in action["text"]
+    text = action["text"]
+    assert "Notes:" not in text
+    assert "<b>Blog</b>" in text
+    assert "1. <code>a</code>" in text
+    assert "Choose an action:" in text
     rows = action["reply_markup"].inline_keyboard
     texts = [button.text for row in rows for button in row]
     datas = [button.callback_data for row in rows for button in row]
-    assert texts[:2] == [buttons.SHOW_NOTES, buttons.ADD_NOTE]
-    assert Cb.src_show_notes(0) in datas
+    assert "1" in texts
+    assert Cb.note_view("1", "Blog") in datas
     assert Cb.src_new_note(0) in datas
     assert Cb.src_rename(0) in datas
     assert Cb.src_del(0) in datas
+    assert Cb.src_show_notes(0) not in datas
+    assert "📂 Show notes" not in texts
+    assert buttons.RENAME_SOURCE in texts
+    assert buttons.DELETE_SOURCE in texts
 
 
-def test_source_actions_show_notes(use_repo) -> None:
-    """«📂 Show notes» открывает нумерованные заметки источника."""
+def test_source_actions_legacy_show_notes(use_repo) -> None:
+    """Старый callback «📂 Show notes» ведёт к списку заметок источника."""
     repo, _ = repo_for([note_row("1", "Blog", "a"), note_row("2", "Blog", "b")])
     use_repo(repo)
     state = FakeState()
@@ -484,7 +490,8 @@ def test_empty_source_keeps_action_buttons(use_repo) -> None:
     datas = [button.callback_data for row in rows for button in row]
     assert texts == [
         buttons.ADD_NOTE_ROW,
-        buttons.EDIT_SOURCE,
+        buttons.RENAME_SOURCE,
+        buttons.DELETE_SOURCE,
         buttons.BACK,
         buttons.TO_MAIN,
     ]

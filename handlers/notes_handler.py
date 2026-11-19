@@ -701,9 +701,21 @@ async def cb_manage_sources(callback: types.CallbackQuery, state: FSMContext) ->
     await show_sources_manage(callback, state)
 
 
+def _source_screen_text(source: str, notes: list[Note], name_col: int) -> str:
+    """Заголовок источника, нумерованный список заметок и «Choose an action»."""
+    head = buttons.SOURCE_MANAGE_PROMPT.format(source=escape_html(source))
+    if not notes:
+        return with_min_width(head)
+    lines = [
+        f"{position}. <code>{escape_html(_note_title(note, name_col))}</code>"
+        for position, note in enumerate(notes, start=1)
+    ]
+    return with_min_width(head + "\n" + "\n".join(lines))
+
+
 @router.callback_query(F.data.startswith(f"{Cb.SRC_MANAGE}:"))
 async def cb_source_manage(callback: types.CallbackQuery, state: FSMContext) -> None:
-    """Нажатие на номер: экран действий над выбранным источником."""
+    """Нажатие на номер: заметки источника — сразу номерами и действиями."""
     await ack_callback(callback)
     index = Cb.parse_source_index(callback.data or "", Cb.SRC_MANAGE)
     if index is None:
@@ -712,10 +724,19 @@ async def cb_source_manage(callback: types.CallbackQuery, state: FSMContext) -> 
     if saved is None:
         return
     source, _ = saved
+    repo = _repo(callback)
+    if repo is None:
+        return
+    try:
+        notes = await asyncio.to_thread(repo.list_by_source, source)
+        name_col = title_column_index(repo.headers())
+    except Exception as e:
+        await send_error_message(callback, e)
+        return
     await show_main_menu(
         callback,
-        with_min_width(buttons.SOURCE_MANAGE_PROMPT.format(source=escape_html(source))),
-        keyboards.source_actions(index),
+        _source_screen_text(source, notes, name_col),
+        keyboards.source_actions(index, [note.note_id for note in notes], source),
     )
 
 
@@ -723,7 +744,7 @@ async def cb_source_manage(callback: types.CallbackQuery, state: FSMContext) -> 
 async def cb_source_show_notes(
     callback: types.CallbackQuery, state: FSMContext
 ) -> None:
-    """«📂 Show notes»: заметки выбранного источника."""
+    """Совместимость: старые сообщения с «📂 Show notes»."""
     await ack_callback(callback)
     index = Cb.parse_source_index(callback.data or "", Cb.SRC_SHOW_NOTES)
     if index is None:

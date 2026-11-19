@@ -101,8 +101,8 @@ def test_column_number_opens_actions(use_service) -> None:
     texts = [button.text for button in flat]
     datas = [button.callback_data for button in flat]
     assert texts == [
-        buttons.RENAME_SOURCE,
-        buttons.DELETE_SOURCE,
+        buttons.RENAME_COLUMN_SHORT,
+        buttons.DELETE_COLUMN_SHORT,
         buttons.BACK,
         buttons.TO_MAIN,
     ]
@@ -188,8 +188,8 @@ def test_screen_column_cannot_be_deleted(use_service) -> None:
     asyncio.run(columns_handler.cb_column_view(callback, state))
 
     texts = [button.text for button in _flat(callback.message.sent[-1]["reply_markup"])]
-    assert buttons.DELETE_SOURCE not in texts
-    assert buttons.RENAME_SOURCE in texts
+    assert buttons.DELETE_COLUMN_SHORT not in texts
+    assert buttons.RENAME_COLUMN_SHORT in texts
 
 
 def test_columns_menu_add_column_prompt(use_service) -> None:
