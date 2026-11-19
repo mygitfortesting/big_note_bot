@@ -8,7 +8,6 @@ ADD_NOTE = "➕ Add note"
 OPEN_TABLE = "🪎 Open Table"
 
 # --- Кнопки главного меню ---
-# BY_SOURCE = "📂 Notes by source"
 COLUMNS = "📊 Columns"
 SOURCES = "🗂 Sources"
 
@@ -20,8 +19,6 @@ NEW_SOURCE = "➕ New source"
 EDIT_FIELD = "✏️ Edit field"
 PHOTO = "🖼 Add/Replace screenshot"
 DELETE_NOTE = "🗑 Delete"
-DELETE_COLUMN = "🗑 Delete column"
-RENAME_COLUMN = "✏️ Rename column"
 ADD_COLUMN = "➕ Add column"
 RENAME_SOURCE = "✏️ Edit source"
 DELETE_SOURCE = "🗑 Delete source"

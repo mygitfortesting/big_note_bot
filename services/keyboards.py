@@ -42,23 +42,149 @@ def _button(text: str, callback_data: str) -> InlineKeyboardButton:
     return InlineKeyboardButton(text=text, callback_data=callback_data)
 
 
+# --- Постоянные кнопки ---
+# Каждая функция возвращает новую кнопку с фиксированным текстом и
+# callback_data: меню собираются из готовых кирпичиков, без `_button(...)`
+# прямо внутри списков.
+
+
+def to_main_row() -> InlineKeyboardButton:
+    """Кнопка «🏠 Main menu» — ведёт в главное меню."""
+    return _button(buttons.TO_MAIN, Cb.TO_MAIN)
+
+
+def cancel_row() -> InlineKeyboardButton:
+    """Кнопка «✖️ Cancel» — отмена текущего ввода."""
+    return _button(buttons.CANCEL, Cb.CANCEL_INPUT)
+
+
+def add_note_button() -> InlineKeyboardButton:
+    """«➕ Add note» — создать заметку (с выбором источника)."""
+    return _button(buttons.ADD_NOTE, Cb.NOTE_ADD)
+
+
+def add_source_button() -> InlineKeyboardButton:
+    """«📂 Add source» — ввод имени нового источника."""
+    return _button(buttons.ADD_SOURCE, Cb.SRC_ADD)
+
+
+def new_source_button() -> InlineKeyboardButton:
+    """«➕ New source» — то же действие, но ярлык экрана выбора."""
+    return _button(buttons.NEW_SOURCE, Cb.SRC_ADD)
+
+
+def sources_button() -> InlineKeyboardButton:
+    """«🗂 Sources» — список источников с действиями."""
+    return _button(buttons.SOURCES, Cb.MENU_SOURCES)
+
+
+def columns_button() -> InlineKeyboardButton:
+    """«📊 Columns» — управление колонками листа."""
+    return _button(buttons.COLUMNS, Cb.MENU_COLUMNS)
+
+
+def add_column_button() -> InlineKeyboardButton:
+    """«➕ Add column» — новая пользовательская колонка."""
+    return _button(buttons.ADD_COLUMN, Cb.COL_ADD)
+
+
+def change_order_button() -> InlineKeyboardButton:
+    """«🔢 Change order» — ввод нового порядка колонок."""
+    return _button(buttons.CHANGE_ORDER, Cb.COL_REORDER)
+
+
+def back_to_columns_button() -> InlineKeyboardButton:
+    """«⬅️ Back» из меню колонки — к списку колонок."""
+    return _button(buttons.BACK, Cb.MENU_COLUMNS)
+
+
+def back_to_sources_button() -> InlineKeyboardButton:
+    """«⬅️ Back» — к списку источников."""
+    return _button(buttons.BACK, Cb.MENU_SOURCES)
+
+
+# --- Кнопки с параметрами ---
+# Источник передаётся номером из FSMContext (0-based), заметка/колонка —
+# своим ID или номером: в callback_data не попадают длинные имена.
+
+
+def source_all_notes_button(index: int) -> InlineKeyboardButton:
+    """«📖 Show all notes» — все заметки источника целиком."""
+    return _button(buttons.SHOW_ALL_NOTES, Cb.src_all_notes(index))
+
+
+def source_add_note_button(
+    index: int, label: str | None = None
+) -> InlineKeyboardButton:
+    """«➕ Add note» сразу для источника (``label`` — ярлык экрана)."""
+    return _button(label or buttons.ADD_NOTE, Cb.src_new_note(index))
+
+
+def source_rename_button(index: int, label: str | None = None) -> InlineKeyboardButton:
+    """Переименование источника (``label`` — ярлык экрана)."""
+    return _button(label or buttons.RENAME_SOURCE, Cb.src_rename(index))
+
+
+def source_delete_button(index: int) -> InlineKeyboardButton:
+    """Удалить источник (с подтверждением на следующем шаге)."""
+    return _button(buttons.DELETE_SOURCE, Cb.src_del(index))
+
+
+def source_delete_confirm_button(index: int) -> InlineKeyboardButton:
+    """«✅ Yes, delete» — подтверждение удаления источника."""
+    return _button(buttons.CONFIRM_DELETE, Cb.src_del_confirm(index))
+
+
+def source_back_to_manage_button(index: int) -> InlineKeyboardButton:
+    """«⬅️ Back» на экран источника — отмена подтверждения удаления."""
+    return _button(buttons.BACK, Cb.src_manage(index))
+
+
+def note_edit_menu_button(note_id: str) -> InlineKeyboardButton:
+    """«✏️ Edit field» — выбор колонки для правки."""
+    return _button(buttons.EDIT_FIELD, Cb.note_edit_menu(note_id))
+
+
+def note_delete_button(note_id: str) -> InlineKeyboardButton:
+    """«🗑 Delete» — удалить заметку."""
+    return _button(buttons.DELETE_NOTE, Cb.note_del(note_id))
+
+
+def note_photo_button(note_id: str) -> InlineKeyboardButton:
+    """«🖼 Add/Replace screenshot» — прикрепить скриншот."""
+    return _button(buttons.PHOTO, Cb.note_photo(note_id))
+
+
+def note_view_back_button(note_id: str, source: str) -> InlineKeyboardButton:
+    """«⬅️ Back» — из подтверждения удаления обратно в карточку."""
+    return _button(buttons.BACK, Cb.note_view(note_id, source))
+
+
+def note_source_back_button(source: str) -> InlineKeyboardButton:
+    """«⬅️ Back» — из карточки к заметкам её источника."""
+    return _button(buttons.BACK, Cb.src_notes(source))
+
+
+def column_rename_button(col_index: int) -> InlineKeyboardButton:
+    """«✏️ Rename» — переименовать пользовательскую колонку."""
+    return _button(buttons.RENAME_COLUMN_SHORT, Cb.col_rename(col_index))
+
+
+def column_delete_button(col_index: int) -> InlineKeyboardButton:
+    """«🗑 Delete» — удалить пользовательскую колонку."""
+    return _button(buttons.DELETE_COLUMN_SHORT, Cb.col_del(col_index))
+
+
 # --- Навигация ---
 
 
 def main_menu() -> InlineKeyboardMarkup:
     """Главное меню: основные разделы."""
-    return _markup(
-        [
-            [
-                _button(buttons.ADD_NOTE, Cb.NOTE_ADD),
-                _button(buttons.ADD_SOURCE, Cb.SRC_ADD),
-            ],
-            [
-                _button(buttons.SOURCES, Cb.MENU_SOURCES),
-                _button(buttons.COLUMNS, Cb.MENU_COLUMNS),
-            ],
-        ]
-    )
+    rows = [
+        [add_note_button(), add_source_button()],
+        [sources_button(), columns_button()],
+    ]
+    return _markup(rows)
 
 
 def back_to_main() -> InlineKeyboardMarkup:
@@ -68,16 +194,7 @@ def back_to_main() -> InlineKeyboardMarkup:
 
 def search_not_found() -> InlineKeyboardMarkup:
     """Ничего не нашлось: предложить добавить заметку или вернуться в меню."""
-    return _markup([[_button(buttons.ADD_NOTE, Cb.NOTE_ADD), to_main_row()]])
-
-
-def to_main_row() -> InlineKeyboardButton:
-    """Кнопка «🏠 Main menu» — ведёт в главное меню."""
-    return _button(buttons.TO_MAIN, Cb.TO_MAIN)
-
-
-def cancel_row() -> InlineKeyboardButton:
-    return _button(buttons.CANCEL, Cb.CANCEL_INPUT)
+    return _markup([[add_note_button(), to_main_row()]])
 
 
 def new_source_cancel() -> InlineKeyboardMarkup:
@@ -117,7 +234,7 @@ def sources(
     ]
     rows = _rows(items_buttons, 2)
     if with_new:
-        rows.append([_button(buttons.NEW_SOURCE, Cb.SRC_ADD)])
+        rows.append([new_source_button()])
     rows.append([cancel_row(), to_main_row()])
     return _markup(rows)
 
@@ -151,7 +268,7 @@ def sources_manage(count: int) -> InlineKeyboardMarkup:
         for index in range(min(count, PAGE_SIZE))
     ]
     rows = _rows(numbers, SOURCE_NUMBER_ROW)
-    rows.append([_button(buttons.NEW_SOURCE, Cb.SRC_ADD), to_main_row()])
+    rows.append([new_source_button(), to_main_row()])
     return _markup(rows)
 
 
@@ -164,42 +281,23 @@ def source_actions(
     Кнопки-номера открывают карточку заметки (в callback_data — её ID),
     дальше — добавление заметки, правка/удаление источника и навигация.
     """
-    items = [
-        _button(str(position), Cb.note_view(note_id, source))
-        for position, note_id in enumerate(note_ids[:PAGE_SIZE], start=1)
-    ]
-    rows = _rows(items, NOTE_NUMBER_ROW)
-    rows.append(
-        [
-            _button(buttons.SHOW_ALL_NOTES, Cb.src_all_notes(index)),
-            _button(buttons.ADD_NOTE, Cb.src_new_note(index)),
-        ]
-    )
-    rows.append(
-        [
-            _button(buttons.RENAME_SOURCE, Cb.src_rename(index)),
-            _button(buttons.DELETE_SOURCE, Cb.src_del(index)),
-        ]
-    )
-    rows.append([_button(buttons.BACK, Cb.MENU_SOURCES), to_main_row()])
+    rows = _note_number_rows(note_ids, source)
+    rows.append([source_all_notes_button(index), source_add_note_button(index)])
+    rows.append([source_rename_button(index), source_delete_button(index)])
+    rows.append([back_to_sources_button(), to_main_row()])
     return _markup(rows)
 
 
 def source_notes_back(index: int) -> InlineKeyboardMarkup:
     """Возврат с длинного списка заметок на экран того же источника."""
-    return _markup([[_button(buttons.BACK, Cb.src_manage(index)), to_main_row()]])
+    return _markup([[source_back_to_manage_button(index), to_main_row()]])
 
 
 def source_delete_confirm(index: int) -> InlineKeyboardMarkup:
     """Подтверждение удаления источника: удалить или отменить."""
-    return _markup(
-        [
-            [
-                _button(buttons.CONFIRM_DELETE, Cb.src_del_confirm(index)),
-                _button(buttons.CANCEL, Cb.src_manage(index)),
-            ],
-        ]
-    )
+    confirm_button = source_delete_confirm_button(index)
+    cancel_button = source_back_to_manage_button(index)
+    return _markup([[confirm_button, cancel_button]])
 
 
 # --- Заметки ---
@@ -207,6 +305,24 @@ def source_delete_confirm(index: int) -> InlineKeyboardMarkup:
 
 #: Сколько кнопок-номеров заметок в одном ряду.
 NOTE_NUMBER_ROW = 5
+
+
+def _note_number_rows(
+    note_ids: Sequence[str], source: str
+) -> list[list[InlineKeyboardButton]]:
+    """Ряды кнопок-номеров 1..N: в тексте номер, в callback_data — ID."""
+    numbers = [
+        _numbered_note_button(position, note_id, source)
+        for position, note_id in enumerate(note_ids[:PAGE_SIZE], start=1)
+    ]
+    return _rows(numbers, NOTE_NUMBER_ROW)
+
+
+def _numbered_note_button(
+    position: int, note_id: str, source: str
+) -> InlineKeyboardButton:
+    """Кнопка с порядковым номером, ведущая в карточку заметки."""
+    return _button(str(position), Cb.note_view(note_id, source))
 
 
 def notes(
@@ -220,33 +336,23 @@ def notes(
     известен, под номерами появляются «➕ Add Note» и «✏️ Edit Source» для
     этого источника (в callback_data снова только номер — 64 байта хватит).
     """
-    items = [
-        _button(str(index), Cb.note_view(note_id, source))
-        for index, note_id in enumerate(note_ids[:PAGE_SIZE], start=1)
-    ]
-    rows = _rows(items, NOTE_NUMBER_ROW)
+    rows = _note_number_rows(note_ids, source)
     if source_index is not None:
-        rows.append(
-            [
-                _button(buttons.ADD_NOTE_ROW, Cb.src_new_note(source_index)),
-                _button(buttons.EDIT_SOURCE, Cb.src_rename(source_index)),
-            ]
-        )
-    rows.append([_button(buttons.BACK, Cb.MENU_SOURCES), to_main_row()])
+        add_button = source_add_note_button(source_index, buttons.ADD_NOTE_ROW)
+        edit_button = source_rename_button(source_index, buttons.EDIT_SOURCE)
+        rows.append([add_button, edit_button])
+    rows.append([back_to_sources_button(), to_main_row()])
     return _markup(rows)
 
 
 def note_card(note_id: str, source: str) -> InlineKeyboardMarkup:
     """Клавиатура карточки заметки: правка поля, скриншот, удаление и навигация."""
+    back_button = note_source_back_button(source) if source else cancel_row()
     rows: list[list[InlineKeyboardButton]] = [
-        [
-            _button(buttons.EDIT_FIELD, Cb.note_edit_menu(note_id)),
-            _button(buttons.DELETE_NOTE, Cb.note_del(note_id)),
-        ],
-        [_button(buttons.PHOTO, Cb.note_photo(note_id))],
+        [note_edit_menu_button(note_id), note_delete_button(note_id)],
+        [note_photo_button(note_id)],
+        [back_button, to_main_row()],
     ]
-    nav_button = _button(buttons.BACK, Cb.src_notes(source)) if source else cancel_row()
-    rows.append([nav_button, to_main_row()])
     return _markup(rows)
 
 
@@ -254,8 +360,8 @@ def note_delete_confirm(note_id: str, source: str) -> InlineKeyboardMarkup:
     """Подтверждение удаления заметки."""
     return _markup(
         [
-            [_button(buttons.DELETE_NOTE, Cb.note_del(note_id))],
-            [_button(buttons.BACK, Cb.note_view(note_id, source))],
+            [note_delete_button(note_id)],
+            [note_view_back_button(note_id, source)],
         ]
     )
 
@@ -273,7 +379,7 @@ def edit_fields_only(
 
 def photo_cancel(note_id: str, source: str) -> InlineKeyboardMarkup:
     """Отмена ввода скриншота — возврат в карточку."""
-    return _markup([[_button(buttons.BACK, Cb.note_view(note_id, source))]])
+    return _markup([[note_view_back_button(note_id, source)]])
 
 
 # --- Колонки ---
@@ -293,9 +399,9 @@ def columns_menu(count: int) -> InlineKeyboardMarkup:
         for position in range(min(count, PAGE_SIZE))
     ]
     rows = _rows(numbers, NOTE_NUMBER_ROW)
-    actions = [_button(buttons.ADD_COLUMN, Cb.COL_ADD)]
+    actions = [add_column_button()]
     if count >= 2:
-        actions.append(_button(buttons.CHANGE_ORDER, Cb.COL_REORDER))
+        actions.append(change_order_button())
     rows.append(actions)
     rows.append([to_main_row()])
     return _markup(rows)
@@ -308,12 +414,12 @@ def column_actions(col_index: int, can_delete: bool) -> InlineKeyboardMarkup:
     Порядок меняется на главном экране ``📋 Columns``. Удаление скрыто
     для защищённых колонок (например, ``SCREEN``).
     """
-    edit = [_button(buttons.RENAME_COLUMN_SHORT, Cb.col_rename(col_index))]
+    actions = [column_rename_button(col_index)]
     if can_delete:
-        edit.append(_button(buttons.DELETE_COLUMN_SHORT, Cb.col_del(col_index)))
+        actions.append(column_delete_button(col_index))
     rows: list[list[InlineKeyboardButton]] = [
-        edit,
-        [_button(buttons.BACK, Cb.MENU_COLUMNS), to_main_row()],
+        actions,
+        [back_to_columns_button(), to_main_row()],
     ]
     return _markup(rows)
 
@@ -325,23 +431,45 @@ def columns_cancel() -> InlineKeyboardMarkup:
 
 __all__ = [
     "PAGE_SIZE",
+    "add_column_button",
+    "add_note_button",
+    "add_source_button",
+    "back_to_columns_button",
     "back_to_main",
+    "back_to_sources_button",
     "cancel_row",
-    "new_source_cancel",
+    "change_order_button",
     "column_actions",
+    "column_delete_button",
+    "column_rename_button",
+    "columns_button",
     "columns_cancel",
     "columns_menu",
     "edit_fields_only",
     "main_menu",
+    "new_source_button",
+    "new_source_cancel",
     "note_card",
+    "note_delete_button",
     "note_delete_confirm",
+    "note_edit_menu_button",
+    "note_photo_button",
+    "note_source_back_button",
+    "note_view_back_button",
     "notes",
     "photo_cancel",
-    "source_actions",
-    "source_delete_confirm",
-    "source_notes_back",
     "search_not_found",
+    "source_actions",
+    "source_add_note_button",
+    "source_all_notes_button",
+    "source_back_to_manage_button",
+    "source_delete_button",
+    "source_delete_confirm",
+    "source_delete_confirm_button",
+    "source_notes_back",
+    "source_rename_button",
     "sources",
+    "sources_button",
     "sources_manage",
     "sources_with_counts",
     "table_link",
