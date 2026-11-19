@@ -32,6 +32,13 @@ EDIT_SOURCE = "✏️ Edit Source"
 #: Экран источника: все заметки сразу с полным содержанием.
 SHOW_ALL_NOTES = "📖 Show all notes"
 
+# --- Мастер заполнения новой заметки ---
+#: «⏭ Next» — следующая колонка, «✅ Done» — оставить как есть.
+NEXT_FIELD = "⏭ Next"
+DONE_NOTE = "✅ Done"
+#: «➕ Add another note» — снова TITLE для того же источника.
+ADD_ANOTHER_NOTE = "➕ Add another note"
+
 # --- Тексты ---
 TABLE_LINK_PROMPT = (
     "📊 <b>Google Sheets database</b>\n"
@@ -55,6 +62,29 @@ NEW_SOURCE_PROMPT = (
 
 NOTE_TITLE_PROMPT = (
     "📝 <b>New note</b>\n\nSource: <b>{source}</b>\nWrite the new note <b>TITLE</b>:"
+)
+
+#: Шаг мастера: обычная текстовая колонка заметки.
+WIZARD_FIELD_PROMPT = (
+    "📝 <b>{name}</b>\n\n"
+    "Field <b>{field}</b> — send the value (or <code>-</code> to skip it):"
+)
+
+#: Шаг мастера: колонка SCREEN — ждём фото.
+WIZARD_SCREEN_PROMPT = (
+    "🖼 <b>{name}</b>\n\n"
+    "Field <b>SCREEN</b> — send a screenshot as a photo, "
+    "or press <b>⏭ Next</b>:"
+)
+
+#: Прислали текст там, где ждали фото для SCREEN.
+WIZARD_SCREEN_WRONG_TYPE = (
+    "⚠️ Please send a photo, or press <b>⏭ Next</b> to skip <b>SCREEN</b>."
+)
+
+#: Прислали фото там, где ждали текст для обычной колонки.
+WIZARD_FIELD_WRONG_TYPE = (
+    "⚠️ Please send text for <b>{field}</b>, or press <b>⏭ Next</b> to skip it."
 )
 
 EDIT_FIELD_PROMPT = (

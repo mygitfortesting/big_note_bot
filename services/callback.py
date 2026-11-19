@@ -61,6 +61,14 @@ class Cb:
     #: «📖 Show all notes»: все заметки источника с полным содержанием.
     SRC_ALL_NOTES = "src_all"
 
+    # --- Мастер заполнения новой заметки ---
+    #: «⏭ Next» — следующая колонка мастера (состояние в FSMContext).
+    WIZARD_NEXT = "wiz_next"
+    #: «✅ Done» — закончить мастер, оставить поля пустыми.
+    WIZARD_DONE = "wiz_done"
+    #: «➕ Add another note» — ещё одна заметка в тот же источник.
+    WIZARD_ANOTHER = "wiz_another"
+
     # --- Кнопки с параметрами ---
     SRC_SELECT = "src_select"
     SRC_NOTES = "src_notes"

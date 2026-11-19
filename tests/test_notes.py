@@ -330,7 +330,8 @@ def test_select_source_then_name_creates_note(use_repo) -> None:
     titles = [row[TITLE_HEADER] for row in data]
     assert titles == ["b", "Zebra"]
     assert all(row[SOURCE_HEADER] == "YouTube" for row in data)
-    assert state.state is None
+    # После TITLE начинается мастер заполнения колонок.
+    assert state.state == NoteStates.wizard_step
 
 
 def test_new_source_is_added_as_blank_source(use_repo) -> None:
@@ -755,6 +756,149 @@ def test_source_actions_add_note_skips_source_choice(use_repo) -> None:
     data = rows_by_header(sheet)
     assert [row[SOURCE_HEADER] for row in data] == ["Blog", "Blog"]
     assert "Fresh" in [row[TITLE_HEADER] for row in data]
+
+
+def test_note_wizard_step_keyboard_layout() -> None:
+    """Клавиатура шага мастера: Next/Done, Add another, Main menu."""
+    keyboard = keyboards.note_wizard_step().inline_keyboard
+    texts = [button.text for row in keyboard for button in row]
+    datas = [button.callback_data for row in keyboard for button in row]
+
+    assert texts == [
+        buttons.NEXT_FIELD,
+        buttons.DONE_NOTE,
+        buttons.ADD_ANOTHER_NOTE,
+        buttons.TO_MAIN,
+    ]
+    assert datas == [Cb.WIZARD_NEXT, Cb.WIZARD_DONE, Cb.WIZARD_ANOTHER, Cb.TO_MAIN]
+
+
+def test_wizard_starts_after_title(use_repo) -> None:
+    """После TITLE бот спрашивает первую оставшуюся колонку с кнопками."""
+    repo, _ = repo_for([note_row("1", "Blog", "a")])
+    use_repo(repo)
+    state = FakeState()
+
+    asyncio.run(notes_handler.cb_select_source(_callback(Cb.src_select("Blog")), state))
+    message = FakeMessage("Fresh", user_id=1)
+    asyncio.run(notes_handler.got_note_title(message, state))
+
+    assert state.state == NoteStates.wizard_step
+    assert state.data["source"] == "Blog"
+    assert state.data["step"] == 0
+    columns = state.data["columns"]
+    assert [name for _, name in columns] == ["DESCRIPTION", "URL", "SCREEN", "COMMENT"]
+    prompt = message.sent[-1]["text"]
+    assert "<b>DESCRIPTION</b>" in prompt
+    keyboard = message.sent[-1]["reply_markup"].inline_keyboard
+    texts = [button.text for row in keyboard for button in row]
+    assert texts == [
+        buttons.NEXT_FIELD,
+        buttons.DONE_NOTE,
+        buttons.ADD_ANOTHER_NOTE,
+        buttons.TO_MAIN,
+    ]
+
+
+def test_wizard_saves_value_and_advances(use_repo) -> None:
+    """Ввод значения на шаге мастера сохраняет ячейку и идёт дальше."""
+    repo, sheet = repo_for([note_row("1", "Blog", "a")])
+    use_repo(repo)
+    state = FakeState()
+    asyncio.run(notes_handler.cb_select_source(_callback(Cb.src_select("Blog")), state))
+    title_message = FakeMessage("Fresh", user_id=1)
+    asyncio.run(notes_handler.got_note_title(title_message, state))
+
+    value_message = FakeMessage("Some description", user_id=1)
+    asyncio.run(notes_handler.wizard_got_text(value_message, state))
+
+    data = rows_by_header(sheet)
+    assert data[1]["DESCRIPTION"] == "Some description"
+    assert state.data["step"] == 1
+    next_prompt = value_message.sent[-1]["text"]
+    assert "<b>URL</b>" in next_prompt
+
+    done_callback = _callback(Cb.WIZARD_DONE)
+    asyncio.run(notes_handler.cb_wizard_done(done_callback, state))
+
+    assert state.state is None
+    card = done_callback.message.sent[-1]["text"]
+    assert "<b>DESCRIPTION:</b> Some description" in card
+
+
+def test_wizard_done_opens_card(use_repo) -> None:
+    """«✅ Done»: мастер завершается и открывается карточка заметки."""
+    repo, _ = repo_for([note_row("1", "Blog", "a")])
+    use_repo(repo)
+    state = FakeState()
+    asyncio.run(notes_handler.cb_select_source(_callback(Cb.src_select("Blog")), state))
+    title_message = FakeMessage("Fresh", user_id=1)
+    asyncio.run(notes_handler.got_note_title(title_message, state))
+    note_id = state.data["note_id"]
+
+    done_callback = _callback(Cb.WIZARD_DONE)
+    asyncio.run(notes_handler.cb_wizard_done(done_callback, state))
+
+    assert state.state is None
+    assert len(done_callback.message.sent) == 1
+    assert "Fresh" in done_callback.message.sent[-1]["text"]
+    datas = [
+        button.callback_data
+        for row in done_callback.message.sent[-1]["reply_markup"].inline_keyboard
+        for button in row
+    ]
+    assert Cb.note_edit_menu(note_id) in datas
+
+
+def test_wizard_another_note_same_source(use_repo) -> None:
+    """«➕ Add another note»: снова TITLE для того же источника."""
+    repo, _ = repo_for([note_row("1", "Blog", "a")])
+    use_repo(repo)
+    state = FakeState()
+    asyncio.run(notes_handler.cb_select_source(_callback(Cb.src_select("Blog")), state))
+    title_message = FakeMessage("Fresh", user_id=1)
+    asyncio.run(notes_handler.got_note_title(title_message, state))
+
+    another_callback = _callback(Cb.WIZARD_ANOTHER)
+    asyncio.run(notes_handler.cb_wizard_another(another_callback, state))
+
+    assert state.state == NoteStates.wait_title
+    assert state.data["source"] == "Blog"
+    prompt = another_callback.message.sent[-1]["text"]
+    assert "Source: <b>Blog</b>" in prompt
+
+
+def test_wizard_next_skips_to_next_column(use_repo) -> None:
+    """«⏭ Next»: пропускает колонку без записи значения."""
+    repo, _ = repo_for([note_row("1", "Blog", "a")])
+    use_repo(repo)
+    state = FakeState()
+    asyncio.run(notes_handler.cb_select_source(_callback(Cb.src_select("Blog")), state))
+    title_message = FakeMessage("Fresh", user_id=1)
+    asyncio.run(notes_handler.got_note_title(title_message, state))
+
+    next_callback = _callback(Cb.WIZARD_NEXT)
+    asyncio.run(notes_handler.cb_wizard_next(next_callback, state))
+
+    assert state.state == NoteStates.wizard_step
+    assert state.data["step"] == 1
+    assert "<b>URL</b>" in next_callback.message.sent[-1]["text"]
+
+    # Дальше SCREEN: жмём Next дважды, чтобы промотать URL и SCREEN.
+    second_next = _callback(Cb.WIZARD_NEXT)
+    asyncio.run(notes_handler.cb_wizard_next(second_next, state))
+    assert "SCREEN" in second_next.message.sent[-1]["text"]
+
+    # Последняя колонка COMMENT: ещё одно нажатие завершает мастер карточкой.
+    third_next = _callback(Cb.WIZARD_NEXT)
+    asyncio.run(notes_handler.cb_wizard_next(third_next, state))
+    assert "COMMENT" in third_next.message.sent[-1]["text"]
+    assert state.state == NoteStates.wizard_step
+
+    fourth_next = _callback(Cb.WIZARD_NEXT)
+    asyncio.run(notes_handler.cb_wizard_next(fourth_next, state))
+    assert state.state is None
+    assert "Fresh" in fourth_next.message.sent[-1]["text"]
 
 
 def test_sources_menu_rename_flow(use_repo) -> None:

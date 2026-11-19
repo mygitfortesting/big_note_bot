@@ -103,6 +103,24 @@ def back_to_sources_button() -> InlineKeyboardButton:
     return _button(buttons.BACK, Cb.MENU_SOURCES)
 
 
+# --- Кнопки мастера заполнения новой заметки ---
+
+
+def wizard_next_button() -> InlineKeyboardButton:
+    """«⏭ Next» — пропустить текущую колонку мастера."""
+    return _button(buttons.NEXT_FIELD, Cb.WIZARD_NEXT)
+
+
+def wizard_done_button() -> InlineKeyboardButton:
+    """«✅ Done» — закончить мастер и открыть карточку."""
+    return _button(buttons.DONE_NOTE, Cb.WIZARD_DONE)
+
+
+def wizard_another_button() -> InlineKeyboardButton:
+    """«➕ Add another note» — снова TITLE для того же источника."""
+    return _button(buttons.ADD_ANOTHER_NOTE, Cb.WIZARD_ANOTHER)
+
+
 # --- Кнопки с параметрами ---
 # Источник передаётся номером из FSMContext (0-based), заметка/колонка —
 # своим ID или номером: в callback_data не попадают длинные имена.
@@ -391,6 +409,25 @@ def photo_cancel(note_id: str, source: str) -> InlineKeyboardMarkup:
     return _markup([[note_view_back_button(note_id, source)]])
 
 
+# --- Мастер заполнения ---
+
+
+def note_wizard_step() -> InlineKeyboardMarkup:
+    """
+    Клавиатура шага мастера: пропустить, закончить, ещё заметка, меню.
+
+    Ввод значения при этом присылается обычным сообщением в чат,
+    поэтому кнопки только управляют сценарием.
+    """
+    return _markup(
+        [
+            [wizard_next_button(), wizard_done_button()],
+            [wizard_another_button()],
+            [to_main_row()],
+        ]
+    )
+
+
 # --- Колонки ---
 
 
@@ -466,6 +503,7 @@ __all__ = [
     "note_source_back_button",
     "note_view_back_button",
     "notes",
+    "note_wizard_step",
     "photo_cancel",
     "search_not_found",
     "source_actions",
@@ -483,4 +521,7 @@ __all__ = [
     "sources_with_counts",
     "table_link",
     "to_main_row",
+    "wizard_another_button",
+    "wizard_done_button",
+    "wizard_next_button",
 ]

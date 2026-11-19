@@ -53,6 +53,11 @@ router = Router(name="notes")
 NON_EDITABLE_HEADERS = {"ID", "SCREEN"}
 #: Значения, которыми пользователь «очищает» ячейку.
 CLEAR_VALUES = {"-", "—", "clear", "none", "пусто"}
+#: Колонки, которые мастер заполнения не спрашивает (ID и SOURCE уже
+#: известны, TITLE введён только что, SCREEN спрашивается отдельно).
+WIZARD_SKIP_HEADERS = {"ID", "SOURCE", "TITLE"}
+#: Служебная колонка со скриншотом: в мастере для неё ждём фото.
+SCREEN_HEADER_UPPER = "SCREEN"
 
 
 class NoteStates(StatesGroup):
@@ -60,6 +65,7 @@ class NoteStates(StatesGroup):
 
     wait_source = State()  # ввод имени нового источника
     wait_title = State()  # ввод заголовка (TITLE) заметки
+    wizard_step = State()  # шаг мастера заполнения колонок новой заметки
     wait_value = State()  # ввод значения колонки
     wait_photo = State()  # ожидание фото для SCREEN
     wait_source_name = State()  # новое имя существующего источника
@@ -278,9 +284,197 @@ async def got_note_title(message: types.Message, state: FSMContext) -> None:
         return
     try:
         note_id = await asyncio.to_thread(repo.create, source, title)
-        await show_note(message, note_id)
+        await start_note_wizard(message, repo, note_id, source, state)
     except Exception as e:
         await send_error_message(message, e)
+
+
+# --- Мастер заполнения новой заметки ---
+
+
+async def start_note_wizard(
+    event: types.Message,
+    repo: NoteRepository,
+    note_id: str,
+    source: str,
+    state: FSMContext,
+) -> None:
+    """
+    После ввода TITLE предлагает заполнить остальные колонки по шагам.
+
+    Список колонок (без ID, SOURCE и TITLE) и текущий индекс хранятся
+    в FSMContext; если заполнять больше нечего — сразу показываем карточку.
+    """
+    headers = await asyncio.to_thread(repo.headers)
+    columns = [
+        (index, header)
+        for index, header in enumerate(headers, start=1)
+        if header.strip().upper() not in WIZARD_SKIP_HEADERS
+    ]
+    if not columns:
+        await state.clear()
+        await show_note(event, note_id)
+        return
+    await state.set_state(NoteStates.wizard_step)
+    await state.update_data(note_id=note_id, source=source, columns=columns, step=0)
+    await _ask_wizard_column(event, note_id, columns, 0)
+
+
+async def _ask_wizard_column(
+    event: types.Message | types.CallbackQuery,
+    note_id: str,
+    columns: list[tuple[int, str]],
+    step: int,
+) -> None:
+    """Запрос значения текущей колонки мастера (или карточка, если всё)."""
+    if step >= len(columns):
+        return
+    header = columns[step][1]
+    name = _wizard_note_title(note_id)
+    if header.strip().upper() == SCREEN_HEADER_UPPER:
+        text = buttons.WIZARD_SCREEN_PROMPT.format(name=name)
+    else:
+        text = buttons.WIZARD_FIELD_PROMPT.format(name=name, field=escape_html(header))
+    await show_main_menu(event, with_min_width(text), keyboards.note_wizard_step())
+
+
+def _wizard_note_title(note_id: str) -> str:
+    """Заголовок заметки для промпта мастера (пока только ID)."""
+    return f"New note <code>{escape_html(note_id)}</code>"
+
+
+async def _wizard_data(
+    state: FSMContext,
+) -> tuple[str, str, list[tuple[int, str]], int]:
+    """Данные шага мастера из FSMContext: note_id, source, колонки, индекс."""
+    data = await state.get_data()
+    note_id = str(data.get("note_id", ""))
+    source = str(data.get("source", ""))
+    columns = [(int(i), str(h)) for i, h in data.get("columns", [])]
+    step = int(data.get("step", 0) or 0)
+    return note_id, source, columns, step
+
+
+async def _advance_wizard(
+    event: types.Message | types.CallbackQuery,
+    state: FSMContext,
+    note_id: str,
+    source: str,
+    columns: list[tuple[int, str]],
+    step: int,
+) -> None:
+    """Переход к следующей колонке или выход из мастера в карточку."""
+    next_step = step + 1
+    await state.update_data(step=next_step)
+    if next_step >= len(columns):
+        await state.clear()
+        await show_note(event, note_id)
+        return
+    await _ask_wizard_column(event, note_id, columns, next_step)
+
+
+@router.message(NoteStates.wizard_step, F.photo)
+async def wizard_got_photo(message: types.Message, state: FSMContext) -> None:
+    """Фото на шаге SCREEN: сохраняем file_id и переходим к следующей колонке."""
+    note_id, source, columns, step = await _wizard_data(state)
+    if not note_id or step >= len(columns):
+        await state.clear()
+        return
+    header = columns[step][1]
+    if header.strip().upper() != SCREEN_HEADER_UPPER:
+        await status_message(message, "⚠️ Please send text for this field.")
+        return
+    repo = _repo(message)
+    if repo is None:
+        return
+    if not message.photo:
+        await status_message(message, "⚠️ Please send a photo.")
+        return
+    file_id = message.photo[-1].file_id
+    try:
+        await asyncio.to_thread(
+            repo.update_cell_at, _row_of(repo, note_id), columns[step][0], file_id
+        )
+    except Exception as e:
+        await send_error_message(message, e)
+        return
+    await status_message(message, buttons.PHOTO_SAVED)
+    await _advance_wizard(message, state, note_id, source, columns, step)
+
+
+@router.message(NoteStates.wizard_step, F.text)
+async def wizard_got_text(message: types.Message, state: FSMContext) -> None:
+    """Текст на обычном шаге мастера: пишем в ячейку и идём дальше."""
+    note_id, source, columns, step = await _wizard_data(state)
+    if not note_id or step >= len(columns):
+        await state.clear()
+        return
+    col_index, header = columns[step]
+    if header.strip().upper() == SCREEN_HEADER_UPPER:
+        await status_message(message, buttons.WIZARD_SCREEN_WRONG_TYPE)
+        return
+    repo = _repo(message)
+    if repo is None:
+        return
+    value = (message.text or "").strip()
+    if value.lower() in CLEAR_VALUES:
+        value = ""
+    try:
+        await asyncio.to_thread(
+            repo.update_cell_at, _row_of(repo, note_id), col_index, value
+        )
+    except Exception as e:
+        await send_error_message(message, e)
+        return
+    await status_message(message, buttons.NOTE_SAVED)
+    await _advance_wizard(message, state, note_id, source, columns, step)
+
+
+@router.message(NoteStates.wizard_step)
+async def wizard_got_wrong_type(message: types.Message, state: FSMContext) -> None:
+    """Не текст и не фото: просим то, что подходит текущей колонке."""
+    _, _, columns, step = await _wizard_data(state)
+    if step >= len(columns):
+        await state.clear()
+        return
+    if columns[step][1].strip().upper() == SCREEN_HEADER_UPPER:
+        await status_message(message, buttons.WIZARD_SCREEN_WRONG_TYPE)
+    else:
+        await status_message(message, "⚠️ Please send text for this field.")
+
+
+@router.callback_query(F.data == Cb.WIZARD_NEXT)
+async def cb_wizard_next(callback: types.CallbackQuery, state: FSMContext) -> None:
+    """«⏭ Next»: пропустить текущую колонку мастера."""
+    await ack_callback(callback)
+    note_id, source, columns, step = await _wizard_data(state)
+    if not note_id:
+        await send_main_menu(callback)
+        return
+    await _advance_wizard(callback, state, note_id, source, columns, step)
+
+
+@router.callback_query(F.data == Cb.WIZARD_DONE)
+async def cb_wizard_done(callback: types.CallbackQuery, state: FSMContext) -> None:
+    """«✅ Done»: закончить мастер и открыть готовую карточку."""
+    await ack_callback(callback)
+    note_id, _, _, _ = await _wizard_data(state)
+    await state.clear()
+    if not note_id:
+        await send_main_menu(callback)
+        return
+    await show_note(callback, note_id)
+
+
+@router.callback_query(F.data == Cb.WIZARD_ANOTHER)
+async def cb_wizard_another(callback: types.CallbackQuery, state: FSMContext) -> None:
+    """«➕ Add another note»: снова TITLE для того же источника."""
+    await ack_callback(callback)
+    _, source, _, _ = await _wizard_data(state)
+    if not source:
+        await send_main_menu(callback)
+        return
+    await ask_note_title(callback, state, source)
 
 
 @router.callback_query(F.data.startswith(f"{Cb.SRC_SELECT}:"))
@@ -294,27 +488,6 @@ async def cb_select_source(callback: types.CallbackQuery, state: FSMContext) -> 
 
 
 # --- Навигация по источникам ---
-
-
-# @router.callback_query(F.data == Cb.SRC_LIST)
-# async def cb_sources_list(callback: types.CallbackQuery, state: FSMContext) -> None:
-#     """«📂 Notes by source»: список источников с количеством заметок."""
-#     await ack_callback(callback)
-#     await state.clear()
-#     repo = _repo(callback)
-#     if repo is None:
-#         return
-#     try:
-#         counts = await asyncio.to_thread(_source_counts, repo)
-#     except Exception as e:
-#         await send_error_message(callback, e)
-#         return
-#     if not counts:
-#         await show_main_menu(callback, buttons.NO_SOURCES, keyboards.back_to_main())
-#         return
-#     await show_main_menu(
-#         callback, buttons.SOURCES_PROMPT, keyboards.sources_with_counts(counts)
-#     )
 
 
 def _source_counts(repo: NoteRepository) -> list[tuple[str, int]]:
@@ -998,4 +1171,5 @@ __all__ = [
     "send_main_menu",
     "show_sources_manage",
     "show_note",
+    "start_note_wizard",
 ]
