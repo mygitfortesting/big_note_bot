@@ -5,8 +5,8 @@ from __future__ import annotations
 import asyncio
 
 from config import NOTES_HEADERS
-from handlers import notes_handler
-from handlers.notes_handler import NoteStates
+from handlers import wizard_handler
+from handlers.notes_common import NoteStates
 from services import buttons, keyboards
 from services.callback import Cb
 from services.sheets import (
@@ -38,7 +38,7 @@ def test_add_note_shows_sources_and_new_source_button(use_repo) -> None:
     message = FakeMessage("", user_id=1)
     state = FakeState()
 
-    asyncio.run(notes_handler.cmd_add_note(message, state))
+    asyncio.run(wizard_handler.cmd_add_note(message, state))
 
     assert message.sent, f"Bot sent nothing: {message.sent}"
     sent = message.sent[-1]
@@ -62,7 +62,7 @@ def test_add_note_without_sources_asks_for_new_source(use_repo) -> None:
     message = FakeMessage("", user_id=1)
     state = FakeState()
 
-    asyncio.run(notes_handler.cmd_add_note(message, state))
+    asyncio.run(wizard_handler.cmd_add_note(message, state))
 
     assert message.sent, f"Bot sent nothing: {message.sent}"
     sent = message.sent[-1]
@@ -83,7 +83,7 @@ def test_add_source_lists_existing_sources_and_cancel(use_repo) -> None:
     message = FakeMessage("", user_id=1)
     state = FakeState()
 
-    asyncio.run(notes_handler.ask_new_source(message, state))
+    asyncio.run(wizard_handler.ask_new_source(message, state))
 
     assert message.sent, f"Bot sent nothing: {message.sent}"
     sent = message.sent[-1]
@@ -109,7 +109,7 @@ def test_add_source_escapes_existing_sources(use_repo) -> None:
     use_repo(repo)
     message = FakeMessage("", user_id=1)
 
-    asyncio.run(notes_handler.ask_new_source(message, FakeState()))
+    asyncio.run(wizard_handler.ask_new_source(message, FakeState()))
 
     assert message.sent, f"Bot sent nothing: {message.sent}"
     text = message.sent[-1]["text"]
@@ -123,7 +123,7 @@ def test_add_source_without_sources_has_no_existing_line(use_repo) -> None:
     use_repo(repo)
     message = FakeMessage("", user_id=1)
 
-    asyncio.run(notes_handler.ask_new_source(message, FakeState()))
+    asyncio.run(wizard_handler.ask_new_source(message, FakeState()))
 
     assert message.sent, f"Bot sent nothing: {message.sent}"
     sent = message.sent[-1]
@@ -139,7 +139,7 @@ def test_add_source_button_lists_existing_sources(use_repo) -> None:
     add_callback = callback(Cb.SRC_ADD)
     state = FakeState()
 
-    asyncio.run(notes_handler.cb_add_source(add_callback, state))
+    asyncio.run(wizard_handler.cb_add_source(add_callback, state))
 
     assert add_callback.message.sent, f"Bot sent nothing: {add_callback.message.sent}"
     sent = add_callback.message.sent[-1]
@@ -161,13 +161,13 @@ def test_select_source_then_name_creates_note(use_repo) -> None:
     state = FakeState()
 
     asyncio.run(
-        notes_handler.cb_select_source(callback(Cb.src_select("YouTube")), state)
+        wizard_handler.cb_select_source(callback(Cb.src_select("YouTube")), state)
     )
     assert state.state == NoteStates.wait_title
     assert state.data["source"] == "YouTube"
 
     message = FakeMessage("Zebra", user_id=1)
-    asyncio.run(notes_handler.got_note_title(message, state))
+    asyncio.run(wizard_handler.got_note_title(message, state))
 
     data = rows_by_header(sheet)
     titles = [row[TITLE_HEADER] for row in data]
@@ -206,9 +206,9 @@ def test_wizard_starts_after_title(use_repo) -> None:
     use_repo(repo)
     state = FakeState()
 
-    asyncio.run(notes_handler.cb_select_source(callback(Cb.src_select("Blog")), state))
+    asyncio.run(wizard_handler.cb_select_source(callback(Cb.src_select("Blog")), state))
     message = FakeMessage("Fresh", user_id=1)
-    asyncio.run(notes_handler.got_note_title(message, state))
+    asyncio.run(wizard_handler.got_note_title(message, state))
 
     assert state.state == NoteStates.wizard_step
     assert state.data["source"] == "Blog"
@@ -234,12 +234,12 @@ def test_wizard_saves_value_and_advances(use_repo) -> None:
     repo, sheet = repo_for([note_row("1", "Blog", "a")])
     use_repo(repo)
     state = FakeState()
-    asyncio.run(notes_handler.cb_select_source(callback(Cb.src_select("Blog")), state))
+    asyncio.run(wizard_handler.cb_select_source(callback(Cb.src_select("Blog")), state))
     title_message = FakeMessage("Fresh", user_id=1)
-    asyncio.run(notes_handler.got_note_title(title_message, state))
+    asyncio.run(wizard_handler.got_note_title(title_message, state))
 
     value_message = FakeMessage("Some description", user_id=1)
-    asyncio.run(notes_handler.wizard_got_text(value_message, state))
+    asyncio.run(wizard_handler.wizard_got_text(value_message, state))
 
     data = rows_by_header(sheet)
     assert data[1]["DESCRIPTION"] == "Some description"
@@ -252,7 +252,7 @@ def test_wizard_saves_value_and_advances(use_repo) -> None:
     assert "New note: <b>Fresh</b>" in next_prompt
 
     done_callback = callback(Cb.wizard_done(state.data["note_id"]))
-    asyncio.run(notes_handler.cb_wizard_done(done_callback, state))
+    asyncio.run(wizard_handler.cb_wizard_done(done_callback, state))
 
     assert state.state is None
     card = done_callback.message.sent[-1]["text"]
@@ -264,13 +264,13 @@ def test_wizard_done_opens_card(use_repo) -> None:
     repo, _ = repo_for([note_row("1", "Blog", "a")])
     use_repo(repo)
     state = FakeState()
-    asyncio.run(notes_handler.cb_select_source(callback(Cb.src_select("Blog")), state))
+    asyncio.run(wizard_handler.cb_select_source(callback(Cb.src_select("Blog")), state))
     title_message = FakeMessage("Fresh", user_id=1)
-    asyncio.run(notes_handler.got_note_title(title_message, state))
+    asyncio.run(wizard_handler.got_note_title(title_message, state))
     note_id = state.data["note_id"]
 
     done_callback = callback(Cb.wizard_done(note_id))
-    asyncio.run(notes_handler.cb_wizard_done(done_callback, state))
+    asyncio.run(wizard_handler.cb_wizard_done(done_callback, state))
 
     assert state.state is None
     assert len(done_callback.message.sent) == 1
@@ -285,12 +285,12 @@ def test_wizard_another_note_same_source(use_repo) -> None:
     repo, _ = repo_for([note_row("1", "Blog", "a")])
     use_repo(repo)
     state = FakeState()
-    asyncio.run(notes_handler.cb_select_source(callback(Cb.src_select("Blog")), state))
+    asyncio.run(wizard_handler.cb_select_source(callback(Cb.src_select("Blog")), state))
     title_message = FakeMessage("Fresh", user_id=1)
-    asyncio.run(notes_handler.got_note_title(title_message, state))
+    asyncio.run(wizard_handler.got_note_title(title_message, state))
 
     another_callback = callback(Cb.wizard_another(state.data["note_id"]))
-    asyncio.run(notes_handler.cb_wizard_another(another_callback, state))
+    asyncio.run(wizard_handler.cb_wizard_another(another_callback, state))
 
     assert state.state == NoteStates.wait_title
     assert state.data["source"] == "Blog"
@@ -303,12 +303,12 @@ def test_wizard_next_skips_to_next_column(use_repo) -> None:
     repo, _ = repo_for([note_row("1", "Blog", "a")])
     use_repo(repo)
     state = FakeState()
-    asyncio.run(notes_handler.cb_select_source(callback(Cb.src_select("Blog")), state))
+    asyncio.run(wizard_handler.cb_select_source(callback(Cb.src_select("Blog")), state))
     title_message = FakeMessage("Fresh", user_id=1)
-    asyncio.run(notes_handler.got_note_title(title_message, state))
+    asyncio.run(wizard_handler.got_note_title(title_message, state))
 
     next_callback = callback(Cb.wizard_next(state.data["note_id"]))
-    asyncio.run(notes_handler.cb_wizard_next(next_callback, state))
+    asyncio.run(wizard_handler.cb_wizard_next(next_callback, state))
 
     assert state.state == NoteStates.wizard_step
     assert state.data["step"] == 1
@@ -316,17 +316,17 @@ def test_wizard_next_skips_to_next_column(use_repo) -> None:
 
     # Дальше SCREEN: жмём Next дважды, чтобы промотать URL и SCREEN.
     second_next = callback(Cb.wizard_next(state.data["note_id"]))
-    asyncio.run(notes_handler.cb_wizard_next(second_next, state))
+    asyncio.run(wizard_handler.cb_wizard_next(second_next, state))
     assert "SCREEN" in second_next.message.sent[-1]["text"]
 
     # Последняя колонка COMMENT: ещё одно нажатие завершает мастер карточкой.
     third_next = callback(Cb.wizard_next(state.data["note_id"]))
-    asyncio.run(notes_handler.cb_wizard_next(third_next, state))
+    asyncio.run(wizard_handler.cb_wizard_next(third_next, state))
     assert "COMMENT" in third_next.message.sent[-1]["text"]
     assert state.state == NoteStates.wizard_step
 
     fourth_next = callback(Cb.wizard_next(state.data["note_id"]))
-    asyncio.run(notes_handler.cb_wizard_next(fourth_next, state))
+    asyncio.run(wizard_handler.cb_wizard_next(fourth_next, state))
     assert state.state is None
     assert "Fresh" in fourth_next.message.sent[-1]["text"]
 
@@ -340,7 +340,7 @@ def test_wizard_buttons_work_after_fsm_reset(use_repo) -> None:
 
     next_callback = callback(Cb.wizard_next(note_id))
     next_state = FakeState()
-    asyncio.run(notes_handler.cb_wizard_next(next_callback, next_state))
+    asyncio.run(wizard_handler.cb_wizard_next(next_callback, next_state))
 
     assert next_state.state == NoteStates.wizard_step
     assert next_state.data["source"] == "Blog"
@@ -352,14 +352,14 @@ def test_wizard_buttons_work_after_fsm_reset(use_repo) -> None:
 
     done_callback = callback(Cb.wizard_done(note_id))
     done_state = FakeState()
-    asyncio.run(notes_handler.cb_wizard_done(done_callback, done_state))
+    asyncio.run(wizard_handler.cb_wizard_done(done_callback, done_state))
 
     assert done_state.state is None
     assert title in done_callback.message.sent[-1]["text"]
 
     another_callback = callback(Cb.wizard_another(note_id))
     another_state = FakeState()
-    asyncio.run(notes_handler.cb_wizard_another(another_callback, another_state))
+    asyncio.run(wizard_handler.cb_wizard_another(another_callback, another_state))
 
     assert another_state.state == NoteStates.wait_title
     assert another_state.data["source"] == "Blog"
@@ -371,20 +371,20 @@ def test_wizard_photo_saves_file_id_into_screen(use_repo) -> None:
     repo, sheet = repo_for([note_row("1", "Blog", "a")])
     use_repo(repo)
     state = FakeState()
-    asyncio.run(notes_handler.cb_select_source(callback(Cb.src_select("Blog")), state))
+    asyncio.run(wizard_handler.cb_select_source(callback(Cb.src_select("Blog")), state))
     title_message = FakeMessage("Fresh", user_id=1)
-    asyncio.run(notes_handler.got_note_title(title_message, state))
+    asyncio.run(wizard_handler.got_note_title(title_message, state))
 
     # DESCRIPTION → URL → SCREEN: проматываем две колонки кнопкой «Next».
     note_id = state.data["note_id"]
     for _ in range(2):
         next_callback = callback(Cb.wizard_next(note_id))
-        asyncio.run(notes_handler.cb_wizard_next(next_callback, state))
+        asyncio.run(wizard_handler.cb_wizard_next(next_callback, state))
     assert state.data["columns"][state.data["step"]][1] == SCREEN_HEADER
 
     photo_message = FakeMessage("", user_id=1)
     photo_message.photo = [_Photo("small"), _Photo("wizard_file_id")]
-    asyncio.run(notes_handler.wizard_got_photo(photo_message, state))
+    asyncio.run(wizard_handler.wizard_got_photo(photo_message, state))
 
     screen_row = next(row for row in rows_by_header(sheet) if row[ID_HEADER] == note_id)
     assert screen_row[SCREEN_HEADER] == "wizard_file_id"
@@ -398,21 +398,21 @@ def test_wizard_completes_after_last_column(use_repo) -> None:
     repo, _ = repo_for([note_row("1", "Blog", "a")])
     use_repo(repo)
     state = FakeState()
-    asyncio.run(notes_handler.cb_select_source(callback(Cb.src_select("Blog")), state))
+    asyncio.run(wizard_handler.cb_select_source(callback(Cb.src_select("Blog")), state))
     title_message = FakeMessage("Fresh", user_id=1)
-    asyncio.run(notes_handler.got_note_title(title_message, state))
+    asyncio.run(wizard_handler.got_note_title(title_message, state))
     note_id = state.data["note_id"]
 
     value_message = FakeMessage("Some description", user_id=1)
-    asyncio.run(notes_handler.wizard_got_text(value_message, state))
+    asyncio.run(wizard_handler.wizard_got_text(value_message, state))
     next_callback = callback(Cb.wizard_next(note_id))
-    asyncio.run(notes_handler.cb_wizard_next(next_callback, state))
-    asyncio.run(notes_handler.cb_wizard_next(next_callback, state))
+    asyncio.run(wizard_handler.cb_wizard_next(next_callback, state))
+    asyncio.run(wizard_handler.cb_wizard_next(next_callback, state))
     assert state.state == NoteStates.wizard_step
     assert state.data["columns"][state.data["step"]][1] == COMMENT_HEADER
 
     comment_message = FakeMessage("Last field", user_id=1)
-    asyncio.run(notes_handler.wizard_got_text(comment_message, state))
+    asyncio.run(wizard_handler.wizard_got_text(comment_message, state))
 
     assert state.state is None
     card = comment_message.sent[-1]["text"]
@@ -425,9 +425,7 @@ def test_wizard_completes_after_last_column(use_repo) -> None:
 
 def test_wizard_columns_skip_service_headers() -> None:
     """Мастер не спрашивает ID, SOURCE и TITLE — они уже известны."""
-    from handlers.wizard_handler import _wizard_columns
-
-    columns = _wizard_columns(list(NOTES_HEADERS))
+    columns = wizard_handler._wizard_columns(list(NOTES_HEADERS))
 
     names = [name for _, name in columns]
     assert names == ["DESCRIPTION", "URL", "SCREEN", "COMMENT"]

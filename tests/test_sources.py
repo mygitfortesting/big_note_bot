@@ -6,8 +6,8 @@ import asyncio
 
 import pytest
 
-from handlers import notes_handler
-from handlers.notes_handler import NoteStates
+from handlers import sources_handler, wizard_handler
+from handlers.notes_common import NoteStates
 from services import buttons
 from services.callback import Cb
 from services.sheets import SCREEN_HEADER, SOURCE_HEADER, TITLE_HEADER
@@ -24,7 +24,7 @@ def test_new_source_is_added_as_blank_source(use_repo) -> None:
     state = FakeState()
     asyncio.run(state.set_state(NoteStates.wait_source))
 
-    asyncio.run(notes_handler.got_new_source(message, state))
+    asyncio.run(sources_handler.got_new_source(message, state))
 
     assert state.state is None
     assert any("Source added" in item["text"] for item in message.sent)
@@ -44,7 +44,7 @@ def test_sources_menu_numbers_and_opens_actions(use_repo) -> None:
     state = FakeState()
 
     open_callback = callback(Cb.MENU_SOURCES)
-    asyncio.run(notes_handler.cb_manage_sources(open_callback, state))
+    asyncio.run(sources_handler.cb_manage_sources(open_callback, state))
 
     sent = open_callback.message.sent[-1]
     assert "1. Blog -> 1" in sent["text"]
@@ -55,7 +55,7 @@ def test_sources_menu_numbers_and_opens_actions(use_repo) -> None:
     assert state.data["source_list"] == ["Blog", "YouTube"]
 
     manage_callback = callback(Cb.src_manage(0))
-    asyncio.run(notes_handler.cb_source_manage(manage_callback, state))
+    asyncio.run(sources_handler.cb_source_manage(manage_callback, state))
 
     action = manage_callback.message.sent[-1]
     text = action["text"]
@@ -83,9 +83,9 @@ def test_source_actions_legacy_show_notes(use_repo) -> None:
     use_repo(repo)
     state = FakeState()
 
-    asyncio.run(notes_handler.cb_manage_sources(callback(Cb.MENU_SOURCES), state))
+    asyncio.run(sources_handler.cb_manage_sources(callback(Cb.MENU_SOURCES), state))
     show_callback = callback(Cb.src_show_notes(0))
-    asyncio.run(notes_handler.cb_source_show_notes(show_callback, state))
+    asyncio.run(sources_handler.cb_source_show_notes(show_callback, state))
 
     sent = show_callback.message.sent[-1]
     assert "2 note(s)" in sent["text"]
@@ -100,9 +100,9 @@ def test_empty_source_keeps_action_buttons(use_repo) -> None:
     use_repo(repo)
     state = FakeState()
 
-    asyncio.run(notes_handler.cb_manage_sources(callback(Cb.MENU_SOURCES), state))
+    asyncio.run(sources_handler.cb_manage_sources(callback(Cb.MENU_SOURCES), state))
     show_callback = callback(Cb.src_show_notes(0))
-    asyncio.run(notes_handler.cb_source_show_notes(show_callback, state))
+    asyncio.run(sources_handler.cb_source_show_notes(show_callback, state))
 
     sent = show_callback.message.sent[-1]
     assert "There are no notes in <b>Podcast</b> yet." in sent["text"]
@@ -128,9 +128,9 @@ def test_empty_source_manage_screen(use_repo) -> None:
     use_repo(repo)
     state = FakeState()
 
-    asyncio.run(notes_handler.cb_manage_sources(callback(Cb.MENU_SOURCES), state))
+    asyncio.run(sources_handler.cb_manage_sources(callback(Cb.MENU_SOURCES), state))
     manage_callback = callback(Cb.src_manage(0))
-    asyncio.run(notes_handler.cb_source_manage(manage_callback, state))
+    asyncio.run(sources_handler.cb_source_manage(manage_callback, state))
 
     sent = manage_callback.message.sent[-1]
     assert "<b>Podcast</b>" in sent["text"]
@@ -157,9 +157,9 @@ def test_source_actions_show_all_notes(use_repo) -> None:
     use_repo(repo)
     state = FakeState()
 
-    asyncio.run(notes_handler.cb_manage_sources(callback(Cb.MENU_SOURCES), state))
+    asyncio.run(sources_handler.cb_manage_sources(callback(Cb.MENU_SOURCES), state))
     manage_callback = callback(Cb.src_manage(0))
-    asyncio.run(notes_handler.cb_source_manage(manage_callback, state))
+    asyncio.run(sources_handler.cb_source_manage(manage_callback, state))
 
     manage = manage_callback.message.sent[-1]
     keyboard = flat(manage["reply_markup"])
@@ -168,7 +168,7 @@ def test_source_actions_show_all_notes(use_repo) -> None:
     assert Cb.src_all_notes(0) in datas
 
     all_callback = callback(Cb.src_all_notes(0))
-    asyncio.run(notes_handler.cb_source_all_notes(all_callback, state))
+    asyncio.run(sources_handler.cb_source_all_notes(all_callback, state))
 
     sent = all_callback.message.sent[-1]
     text = sent["text"]
@@ -202,7 +202,7 @@ def test_notes_list_is_numbered_with_code_names(use_repo) -> None:
     use_repo(repo)
     notes_callback = callback(Cb.src_notes("Blog"))
 
-    asyncio.run(notes_handler.cb_source_notes(notes_callback, FakeState()))
+    asyncio.run(sources_handler.cb_source_notes(notes_callback, FakeState()))
 
     sent = notes_callback.message.sent[-1]
     assert "1. <code>FlexiTech</code>" in sent["text"]
@@ -224,9 +224,9 @@ def test_notes_list_add_note_button_starts_name_prompt(use_repo) -> None:
     use_repo(repo)
     state = FakeState()
 
-    asyncio.run(notes_handler.cb_source_notes(callback(Cb.src_notes("Blog")), state))
+    asyncio.run(sources_handler.cb_source_notes(callback(Cb.src_notes("Blog")), state))
     add_callback = callback(Cb.src_new_note(0))
-    asyncio.run(notes_handler.cb_source_new_note(add_callback, state))
+    asyncio.run(sources_handler.cb_source_new_note(add_callback, state))
 
     assert state.state == NoteStates.wait_title
     assert state.data["source"] == "Blog"
@@ -240,9 +240,9 @@ def test_notes_list_edit_source_button_starts_rename(use_repo) -> None:
     use_repo(repo)
     state = FakeState()
 
-    asyncio.run(notes_handler.cb_source_notes(callback(Cb.src_notes("Blog")), state))
+    asyncio.run(sources_handler.cb_source_notes(callback(Cb.src_notes("Blog")), state))
     edit_callback = callback(Cb.src_rename(0))
-    asyncio.run(notes_handler.cb_source_rename(edit_callback, state))
+    asyncio.run(sources_handler.cb_source_rename(edit_callback, state))
 
     assert state.state == NoteStates.wait_source_name
     assert state.data["source"] == "Blog"
@@ -256,9 +256,9 @@ def test_source_actions_add_note_skips_source_choice(use_repo) -> None:
     use_repo(repo)
     state = FakeState()
 
-    asyncio.run(notes_handler.cb_manage_sources(callback(Cb.MENU_SOURCES), state))
+    asyncio.run(sources_handler.cb_manage_sources(callback(Cb.MENU_SOURCES), state))
     add_callback = callback(Cb.src_new_note(0))
-    asyncio.run(notes_handler.cb_source_new_note(add_callback, state))
+    asyncio.run(sources_handler.cb_source_new_note(add_callback, state))
 
     assert state.state == NoteStates.wait_title
     assert state.data["source"] == "Blog"
@@ -266,7 +266,7 @@ def test_source_actions_add_note_skips_source_choice(use_repo) -> None:
     assert "Source: <b>Blog</b>" in prompt["text"]
 
     message = FakeMessage("Fresh", user_id=1)
-    asyncio.run(notes_handler.got_note_title(message, state))
+    asyncio.run(wizard_handler.got_note_title(message, state))
 
     data = rows_by_header(sheet)
     assert [row[SOURCE_HEADER] for row in data] == ["Blog", "Blog"]
@@ -280,7 +280,7 @@ def test_saved_source_alerts_on_stale_index(use_repo) -> None:
     state = FakeState()
 
     stale_callback = callback(Cb.src_manage(0))
-    asyncio.run(notes_handler.cb_source_manage(stale_callback, state))
+    asyncio.run(sources_handler.cb_source_manage(stale_callback, state))
 
     assert stale_callback.answers, "Bot answered nothing"
     assert stale_callback.answers[-1]["text"] == buttons.SOURCE_LOST
@@ -297,7 +297,7 @@ def test_saved_source_alerts_on_out_of_range_index(use_repo, saved: list[str]) -
     asyncio.run(state.update_data(source_list=saved, source_counts=[1] * len(saved)))
 
     stale_callback = callback(Cb.src_manage(len(saved)))
-    asyncio.run(notes_handler.cb_source_manage(stale_callback, state))
+    asyncio.run(sources_handler.cb_source_manage(stale_callback, state))
 
     assert stale_callback.answers, "Bot answered nothing"
     assert stale_callback.answers[-1]["text"] == buttons.SOURCE_LOST
@@ -310,9 +310,9 @@ def test_sources_menu_rename_flow(use_repo) -> None:
     use_repo(repo)
     state = FakeState()
 
-    asyncio.run(notes_handler.cb_manage_sources(callback(Cb.MENU_SOURCES), state))
+    asyncio.run(sources_handler.cb_manage_sources(callback(Cb.MENU_SOURCES), state))
     rename_callback = callback(Cb.src_rename(0))
-    asyncio.run(notes_handler.cb_source_rename(rename_callback, state))
+    asyncio.run(sources_handler.cb_source_rename(rename_callback, state))
 
     assert state.state == NoteStates.wait_source_name
     assert state.data["source"] == "Blog"
@@ -322,7 +322,7 @@ def test_sources_menu_rename_flow(use_repo) -> None:
     assert Cb.CANCEL_INPUT in prompt_datas
 
     message = FakeMessage("Podcast", user_id=1)
-    asyncio.run(notes_handler.got_renamed_source(message, state))
+    asyncio.run(sources_handler.got_renamed_source(message, state))
 
     assert any("Updated notes: <b>2</b>" in item["text"] for item in message.sent)
     data = rows_by_header(sheet)
@@ -347,9 +347,9 @@ def test_sources_menu_delete_flow(use_repo) -> None:
     use_repo(repo)
     state = FakeState()
 
-    asyncio.run(notes_handler.cb_manage_sources(callback(Cb.MENU_SOURCES), state))
+    asyncio.run(sources_handler.cb_manage_sources(callback(Cb.MENU_SOURCES), state))
     delete_callback = callback(Cb.src_del(0))
-    asyncio.run(notes_handler.cb_source_delete(delete_callback, state))
+    asyncio.run(sources_handler.cb_source_delete(delete_callback, state))
 
     confirm = delete_callback.message.sent[-1]
     assert "Notes that will be deleted: <b>2</b>" in confirm["text"]
@@ -357,7 +357,7 @@ def test_sources_menu_delete_flow(use_repo) -> None:
     assert Cb.src_del_confirm(0) in confirm_datas
 
     confirm_callback = callback(Cb.src_del_confirm(0))
-    asyncio.run(notes_handler.cb_source_delete_confirm(confirm_callback, state))
+    asyncio.run(sources_handler.cb_source_delete_confirm(confirm_callback, state))
 
     assert "Removed notes: <b>2</b>" in confirm_callback.message.sent[-2]["text"]
     data = rows_by_header(sheet)

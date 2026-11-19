@@ -272,16 +272,17 @@ def _ordered_text(columns: list[tuple[int, str]]) -> str:
     """
     Нумерованный список изменяемых колонок для ввода порядка.
 
-    В конце — готовая для копирования строка текущих номеров, чтобы
-    пользователь поменял в ней цифры местами и отправил обратно.
+    Пункты идут по одному на строку, а в конце — готовая для копирования
+    строка текущих номеров: пользователь меняет в ней цифры местами
+    и отправляет обратно.
     """
     lines = [
         f"{position}. <code>{escape_html(name)}</code>"
         for position, (_, name) in enumerate(columns, start=1)
     ]
     current = " ".join(str(number) for number in range(1, len(columns) + 1))
-    lines.append(f"<code>{current}</code>")
-    return buttons.COLUMN_ORDER_PROMPT + "\n\n" + "\n\n Copy: ".join(lines)
+    body = "\n".join(lines)
+    return f"{buttons.COLUMN_ORDER_PROMPT}\n\n{body}\n\nCopy: <code>{current}</code>"
 
 
 @router.callback_query(F.data == Cb.COL_REORDER)

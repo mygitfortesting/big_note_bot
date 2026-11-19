@@ -125,8 +125,9 @@ def test_change_order_full_flow(use_service) -> None:
     prompt = order_callback.message.sent[-1]
     assert "1. <code>DESCRIPTION</code>" in prompt["text"]
     assert "2. <code>URL</code>" in prompt["text"]
-    # Готовая для копирования строка текущих номеров.
-    assert "<code>1 2 3</code>" in prompt["text"]
+    # Готовая для копирования строка текущих номеров — одна, в конце списка.
+    assert prompt["text"].endswith("Copy: <code>1 2 3</code>")
+    assert prompt["text"].count("Copy:") == 1
     datas = [button.callback_data for button in _flat(prompt["reply_markup"])]
     assert Cb.CANCEL_INPUT in datas
     assert state.state == columns_handler.ColumnStates.wait_order
