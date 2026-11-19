@@ -136,6 +136,50 @@ class SheetCache:
     def _key(user_id: int | None, sheet: Any) -> str:
         return f"values:{user_id}:{id(sheet)}"
 
+    def update_cell(
+        self,
+        sheet: Any,
+        row_index: int,
+        col_index: int,
+        value: str,
+        user_id: int | None = None,
+    ) -> bool:
+        """
+        Правит одну ячейку в уже загруженном снимке — без запроса в Sheets.
+
+        Возвращает True, если снимок есть в кэше и ячейка обновлена
+        (``user_id=None`` — поиск по любому ключу этого листа); False —
+        если кэш пуст или номера вне снимка (тогда кэш не трогаем).
+        """
+        if col_index < 1 or row_index < 1:
+            return False
+        entries = self._entries_with_user(sheet, user_id)
+        for key in entries:
+            values = self._entries[key][1]
+            if row_index > len(values):
+                continue
+            values[row_index - 1] = pad_row(values[row_index - 1], col_index)
+            values[row_index - 1][col_index - 1] = value
+            return True
+        return False
+
+    def replace_values(
+        self, sheet: Any, values: list[list[str]], user_id: int | None = None
+    ) -> int:
+        """Кладёт в кэш только что записанный снимок; число обновлённых ключей."""
+        keys = self._entries_with_user(sheet, user_id)
+        for key in keys:
+            self._entries[key] = (time.monotonic(), values)
+        return len(keys)
+
+    def _entries_with_user(self, sheet: Any, user_id: int | None) -> list[str]:
+        """Ключи кэша этого листа (с учётом user_id, если он известен)."""
+        if user_id is not None:
+            key = self._key(user_id, sheet)
+            return [key] if key in self._entries else []
+        suffix = f":{id(sheet)}"
+        return [key for key in self._entries if key.endswith(suffix)]
+
     def invalidate(self, user_id: int | None = None) -> None:
         """
         Сбрасывает кэш после записи в таблицу.
@@ -162,6 +206,20 @@ def _cached_values(sheet: Any, user_id: int | None = None) -> list[list[str]]:
 def invalidate_cache(user_id: int | None = None) -> None:
     """Модульный фасад над SheetCache.invalidate."""
     _cache.invalidate(user_id)
+
+
+def _remember_values(
+    sheet: Any, values: list[list[str]], user_id: int | None = None
+) -> bool:
+    """Модульный фасад над SheetCache.replace_values (True — кэш был загружен)."""
+    return bool(_cache.replace_values(sheet, values, user_id))
+
+
+def _patch_cached_cell(
+    sheet: Any, row_index: int, col_index: int, value: str, user_id: int | None = None
+) -> bool:
+    """Модульный фасад над SheetCache.update_cell."""
+    return _cache.update_cell(sheet, row_index, col_index, value, user_id)
 
 
 # --- Чистые функции (без сети) ---
@@ -546,16 +604,20 @@ class NoteRepository(_SheetBound):
         строка дописывается в конец во всю ширину шапки; в обоих случаях
         лист затем сортируется по SOURCE и TITLE.
         """
+        # Шапка из снимка до записи: sort_notes затем опирается на кэш,
+        # а не на повторное get_all_values().
+        cached = self._all_values()
         headers = self.headers()
         if not headers:  # пустой лист без шапки: восстанавливаем базовую
             headers = list(BASE_HEADERS)
             self.sheet.insert_row(headers, index=1, value_input_option="RAW")
             invalidate_cache(self._user_id)
+            cached = []
         note_id = self.new_id()
         source_name = (source or "").strip()
         title_name = (title or "").strip()
 
-        blank_row = self._blank_source_row(headers, source_name)
+        blank_row = self._blank_source_row(headers, source_name, cached)
         if blank_row is not None:
             id_col = id_column_index(headers)
             source_col = source_column_index(headers)
@@ -564,7 +626,7 @@ class NoteRepository(_SheetBound):
             self.sheet.update_cell(blank_row, source_col, source_name)
             self.sheet.update_cell(blank_row, title_col, title_name)
             invalidate_cache(self._user_id)
-            self.sort_notes()
+            self.sort_notes(remember=False)
             return note_id
 
         row = [""] * len(headers)
@@ -573,18 +635,23 @@ class NoteRepository(_SheetBound):
         row[title_column_index(headers) - 1] = title_name
 
         self.sheet.append_row(row, value_input_option="RAW")
-        invalidate_cache(self._user_id)
+        if cached:
+            # Дописываем строку в снимок: sort_notes увидит её без нового чтения.
+            cached.append(pad_row(row, len(headers)))
         self.sort_notes()
         return note_id
 
-    def _blank_source_row(self, headers: list[str], source: str) -> int | None:
+    def _blank_source_row(
+        self, headers: list[str], source: str, values: list[list[str]] | None = None
+    ) -> int | None:
         """Номер строки-болванки этого источника (SOURCE есть, TITLE пуст)."""
         wanted = source.strip().lower()
         if not wanted:
             return None
         source_col = source_column_index(headers) - 1
         title_col = title_column_index(headers) - 1
-        for row_index, row in enumerate(self._all_values()[1:], start=2):
+        rows = values if values is not None else self._all_values()
+        for row_index, row in enumerate(rows[1:], start=2):
             if cell(row, title_col).strip():
                 continue
             if cell(row, source_col).strip().lower() == wanted:
@@ -630,9 +697,17 @@ class NoteRepository(_SheetBound):
         invalidate_cache(self._user_id)
 
     def update_cell_at(self, row_index: int, col_index: int, value: str) -> None:
-        """Запись ячейки по номерам строки и колонки (1-based)."""
+        """
+        Запись ячейки по номерам строки и колонки (1-based).
+
+        Кэш не сбрасывается, а правится на месте: следующий ``headers()``
+        или ``get()`` уже видит новое значение без запроса в Sheets.
+        """
         self.sheet.update_cell(row_index, col_index, value)
-        invalidate_cache(self._user_id)
+        if not _patch_cached_cell(
+            self.sheet, row_index, col_index, value, self._user_id
+        ):
+            invalidate_cache(self._user_id)
 
     def delete(self, note_id: str) -> None:
         """Удаляет строку заметки (native delete_rows — сдвиг без «хвостов»)."""
@@ -713,7 +788,7 @@ class NoteRepository(_SheetBound):
         invalidate_cache(self._user_id)
         return notes
 
-    def sort_notes(self) -> None:
+    def sort_notes(self, remember: bool = True) -> None:
         """
         Сортирует данные листа: сначала по SOURCE, затем по TITLE.
 
@@ -721,6 +796,9 @@ class NoteRepository(_SheetBound):
         сверху. Пустые значения уходят в конец. Строки добиваются пустыми
         до ширины шапки: иначе рваная строка не затёрла бы правые ячейки
         соседа и данные «прилипли» бы к чужой записи.
+
+        ``remember=True`` — записанные строки сразу кладутся в кэш: вызову
+        ``create`` не нужен повторный ``get_all_values()``.
         """
         values = self._all_values()
         headers = headers_of(values)
@@ -743,6 +821,10 @@ class NoteRepository(_SheetBound):
             values=data,
             value_input_option="RAW",
         )
+        if remember and _remember_values(
+            self.sheet, [list(headers), *data], self._user_id
+        ):
+            return
         invalidate_cache(self._user_id)
 
 

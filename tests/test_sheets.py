@@ -541,3 +541,52 @@ def test_short_rows_are_padded_to_header_width() -> None:
     assert note is not None
     assert isinstance(repo, NoteRepository)
     assert note.values[-1] == ""
+
+
+# --- Кэш: одиночные записи не заставляют читать лист заново ---
+
+
+class _CountingSheet:
+    """Обёртка над FakeSheet: считает широкие чтения листа."""
+
+    def __init__(self, sheet: object) -> None:
+        self._sheet = sheet
+        self.reads = 0
+
+    def __getattr__(self, name: str) -> object:
+        return getattr(self._sheet, name)
+
+    def get(self, range_name: str, value_render_option: str = "") -> list[list[str]]:
+        self.reads += 1
+        return self._sheet.get(range_name)
+
+    def get_all_values(self) -> list[list[str]]:
+        self.reads += 1
+        return self._sheet.get_all_values()
+
+
+def test_create_and_update_reuse_cached_snapshot() -> None:
+    """``create`` и ``update_cell_at`` обновляют кэш без повторного чтения."""
+    repo, sheet = repo_for([note_row("1", "Blog", "Post")])
+    counting = _CountingSheet(sheet)
+    repo._sheet = counting
+
+    note_id = repo.create("Blog", "Fresh")
+    reads_after_create = counting.reads
+
+    note = repo.get(note_id)
+    assert note is not None
+    assert note.value(3) == "Fresh"
+    assert repo.headers() == list(NOTES_HEADERS)
+    assert counting.reads == reads_after_create
+
+    row_index = repo.find_row(note_id)
+    assert row_index is not None
+    comment_col = NOTES_HEADERS.index(COMMENT_HEADER) + 1
+    repo.update_cell_at(row_index, comment_col, "After edit")
+
+    updated = repo.get(note_id)
+    assert updated is not None
+    assert updated.value(comment_col) == "After edit"
+    assert repo.headers() == list(NOTES_HEADERS)
+    assert counting.reads == reads_after_create

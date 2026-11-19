@@ -410,7 +410,7 @@ async def wizard_got_photo(message: types.Message, state: FSMContext) -> None:
     except Exception as e:
         await send_error_message(message, e)
         return
-    await status_message(message, buttons.PHOTO_SAVED)
+    # Промежуточное «saved» не отправляем: сразу следующий шаг мастера.
     await _advance_wizard(message, state, note_id, title, columns, step)
 
 
@@ -436,7 +436,7 @@ async def wizard_got_text(message: types.Message, state: FSMContext) -> None:
     except Exception as e:
         await send_error_message(message, e)
         return
-    await status_message(message, buttons.NOTE_SAVED)
+    # Промежуточное «saved» не отправляем: сразу следующий шаг мастера.
     await _advance_wizard(message, state, note_id, title, columns, step)
 
 
@@ -875,6 +875,7 @@ async def cb_note_delete(callback: types.CallbackQuery, state: FSMContext) -> No
 async def show_sources_manage(
     event: types.Message | types.CallbackQuery,
     state: FSMContext | None = None,
+    repo: NoteRepository | None = None,
 ) -> None:
     """
     «🗂 Sources»: пронумерованный список «1. Source (N)» и кнопки-номера.
@@ -882,8 +883,12 @@ async def show_sources_manage(
     Список вместе с количеством заметок сохраняется в FSMContext: в
     callback_data уходит только номер, поэтому длина имён источников
     и их количество не упираются в лимит 64 байта.
+
+    ``repo`` можно передать готовым: вызывающий код (переименование
+    источника) уже его получил и не создаёт второй объект.
     """
-    repo = _repo(event)
+    if repo is None:
+        repo = _repo(event)
     if repo is None:
         return
     try:
@@ -1105,6 +1110,31 @@ async def cb_source_rename(callback: types.CallbackQuery, state: FSMContext) -> 
     )
 
 
+def _source_note_count(source: str, counts: list[tuple[str, int]]) -> int:
+    """Количество заметок источника в готовом списке (SOURCE без регистра)."""
+    wanted = source.strip().lower()
+    for saved, count in counts:
+        if saved.strip().lower() == wanted:
+            return count
+    return 0
+
+
+async def _go_to_renamed_source(
+    message: types.Message,
+    repo: NoteRepository,
+    state: FSMContext,
+    new_source: str,
+) -> None:
+    """Список источников в FSM + экран заметок нового имени (без лишнего экрана)."""
+    counts = await asyncio.to_thread(repo.list_sources_with_counts)
+    await _remember_source_list(state, repo, counts)
+    if not new_source or not _source_note_count(new_source, counts):
+        await show_sources_manage(event=message, repo=repo, state=state)
+        return
+    notes = await asyncio.to_thread(repo.list_by_source, new_source)
+    await _send_notes_list(message, repo, new_source, notes, state)
+
+
 @router.message(NoteStates.wait_source_name, F.text)
 async def got_renamed_source(message: types.Message, state: FSMContext) -> None:
     """Новое имя источника: переименовываем все его заметки."""
@@ -1117,25 +1147,22 @@ async def got_renamed_source(message: types.Message, state: FSMContext) -> None:
         return
     if not old_source:
         await status_message(message, buttons.SOURCE_LOST)
-        await show_sources_manage(message, state)
+        await show_sources_manage(event=message, repo=repo, state=state)
         return
     try:
         updated = await asyncio.to_thread(repo.rename_source, old_source, new_source)
     except ValueError:
         await status_message(message, "⚠️ Source name must not be empty.")
-        await show_sources_manage(message, state)
+        await show_sources_manage(event=message, repo=repo, state=state)
         return
     except Exception as e:
         await send_error_message(message, e)
         return
     await status_message(message, buttons.SOURCE_RENAMED.format(count=updated))
-    await show_sources_manage(message, state)
-    if not new_source:
-        return
     try:
-        # Возврат к списку заметок переименованного источника.
-        notes = await asyncio.to_thread(repo.list_by_source, new_source)
-        await _send_notes_list(message, repo, new_source, notes, state)
+        # Общий экран «🗂 Sources» отдельным сообщением не шлём: список
+        # источников обновляем в FSM и сразу открываем заметки нового имени.
+        await _go_to_renamed_source(message, repo, state, new_source)
     except Exception as e:
         # Переименование уже прошло — об ошибке списка сообщаем, а не падаем
         await send_error_message(message, e)

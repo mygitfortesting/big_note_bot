@@ -820,6 +820,8 @@ def test_wizard_saves_value_and_advances(use_repo) -> None:
 
     data = rows_by_header(sheet)
     assert data[1]["DESCRIPTION"] == "Some description"
+    # Промежуточного «✅ Saved.» нет: только следующий шаг мастера.
+    assert len(value_message.sent) == 1
     assert state.data["step"] == 1
     assert state.data["title"] == "Fresh"
     next_prompt = value_message.sent[-1]["text"]
@@ -1064,9 +1066,13 @@ def test_sources_menu_rename_flow(use_repo) -> None:
     assert any("Updated notes: <b>2</b>" in item["text"] for item in message.sent)
     data = rows_by_header(sheet)
     assert {row[SOURCE_HEADER] for row in data} == {"Podcast"}
+    # Отчёт и список заметок — всего 2 сообщения (без общего списка источников).
+    assert len(message.sent) == 2
+    assert "1. Podcast (2)" not in message.sent[-1]["text"]
     # После переименования бот открывает заметки переименованного источника:
     # последнее сообщение — заголовок списка, а не «1. Podcast (2)».
     assert any("<b>Podcast</b> — 2 note(s):" in item["text"] for item in message.sent)
+    assert state.data["source_list"] == ["Podcast"]
     assert state.state is None
 
 
