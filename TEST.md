@@ -90,6 +90,8 @@ pytest tests -m "not integration" -q
 | `test_delete_removes_row` | `delete` удаляет строку заметки, остальные остаются. |
 | `test_prompt_row_is_not_a_note` | Служебная строка AI_PROMT не является заметкой. |
 | `test_create_and_update_reuse_cached_snapshot` | `create`/`update_cell_at` правят кэш без повторного чтения листа. |
+| `test_locate_rereads_sheet_when_cached_snapshot_is_stale` | ID нет в кэше, но есть в листе — `locate`/`get` перечитывают лист и находят заметку. |
+| `test_locate_rereads_sheet_when_id_appears_in_new_sheet_object` | Ключ кэша стабилен: новый объект листа с тем же `title` видит те же данные. |
 
 ---
 
@@ -124,7 +126,8 @@ pytest tests -m "not integration" -q
 | `test_card_fields_separated_by_blank_line` | Поля карточки разделены пустой строкой. |
 | `test_note_context_editable_columns_exclude_id_and_screen` | Текстовая правка недоступна для ID и SCREEN. |
 | `test_note_context_reads_screen_file_id` | file_id скриншота читается из SCREEN. |
-| `test_note_card_has_only_four_buttons` | В карточке ровно 4 кнопки, без правки отдельных полей. |
+| `test_note_card_buttons_layout` | В карточке ровно пять кнопок, без правки отдельных полей. |
+| `test_note_card_edit_button_opens_menu` | «✏️ Edit field» открывает меню колонок (`note_edit_menu`), а не правит ячейку сразу. |
 | `test_edit_field_accepts_any_column_except_id_and_screen` | Меню правки показывает все колонки, кроме ID и SCREEN. |
 
 ### Скриншот и поиск
@@ -133,6 +136,8 @@ pytest tests -m "not integration" -q
 | --- | --- |
 | `test_screenshot_saves_file_id_into_screen` | В SCREEN пишется `photo[-1].file_id` (самый большой размер). |
 | `test_screenshot_uses_screen_column_not_comment` | SCREEN ищется по имени, даже с пользовательскими колонками. |
+| `test_screenshot_without_photo_sends_warning` | Пустой список фото: предупреждение без записи в таблицу. |
+| `test_screenshot_without_screen_column_reports_error` | Нет колонки SCREEN: `ValueError` перехвачен, бот не падает. |
 | `test_search_by_title_opens_single_card` | Уникальное совпадение TITLE сразу открывает карточку. |
 | `test_search_by_title_lists_several_matches` | Несколько совпадений — нумерованный список с источником. |
 | `test_search_by_title_nothing_found` | Ничего не найдено — сообщение с экранированным запросом. |
@@ -145,6 +150,10 @@ pytest tests -m "not integration" -q
 | `test_source_navigation_buttons` | «Notes by source» без Cancel, ввод TITLE — с Cancel. |
 | `test_split_messages_respects_limit` | Длинный текст режется на части не длиннее лимита. |
 | `test_split_messages_short_text_single_part` | Короткий текст — одна часть, пустой — ни одной. |
+| `test_with_min_width_skips_long_text` | Если строка уже не уже распорки, `with_min_width` не добавляет её. |
+| `test_with_min_width_ignores_html_tags` | Ширина считается по видимому тексту без HTML-тегов. |
+| `test_with_min_width_pads_short_text_without_blank_line` | Короткий текст получает распорку через один `\n`, без пустой строки. |
+| `test_with_min_width_is_idempotent` | Повторный вызов не добавляет вторую распорку. |
 
 ---
 
@@ -156,10 +165,9 @@ pytest tests -m "not integration" -q
 | --- | --- |
 | `test_add_note_shows_sources_and_new_source_button` | «➕ Add note» показывает источники и «➕ Новый источник». |
 | `test_add_note_without_sources_asks_for_new_source` | Без источников сразу просит имя нового. |
-| `test_add_source_lists_existing_sources_and_cancel` | «➕ Add source» перечисляет источники и даёт Cancel. |
+| `test_add_source_lists_existing_sources_and_cancel` | «➕ Add source» и кнопка «➕ New source»: список существующих (уникальных) и Cancel. |
 | `test_add_source_escapes_existing_sources` | Имя источника экранируется в подсказке. |
 | `test_add_source_without_sources_has_no_existing_line` | Без источников нет строки «Existing:». |
-| `test_add_source_button_lists_existing_sources` | Кнопка «➕ New source» ведёт к списку существующих. |
 | `test_select_source_then_name_creates_note` | Источник → TITLE → заметка создана и отсортирована. |
 
 ### Шаги мастера
@@ -192,9 +200,8 @@ pytest tests -m "not integration" -q
 | `test_empty_source_manage_screen` | Экран источника без заметок содержит подписанные действия. |
 | `test_source_actions_show_all_notes` | «📖 Show all notes» выводит полные карточки источника. |
 | `test_notes_list_is_numbered_with_code_names` | Список заметок нумерован и даёт кнопки-номера. |
-| `test_notes_list_add_note_button_starts_name_prompt` | «➕ Add Note» сразу просит TITLE источника. |
 | `test_notes_list_edit_source_button_starts_rename` | «✏️ Edit Source» запускает переименование. |
-| `test_source_actions_add_note_skips_source_choice` | «➕ Add note» пропускает выбор источника. |
+| `test_source_actions_add_note_skips_source_choice` | «➕ Add note» пропускает выбор источника и сразу просит TITLE. |
 
 ### Устаревший индекс
 
