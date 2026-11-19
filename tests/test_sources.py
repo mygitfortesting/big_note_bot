@@ -47,8 +47,8 @@ def test_sources_menu_numbers_and_opens_actions(use_repo) -> None:
     asyncio.run(notes_handler.cb_manage_sources(open_callback, state))
 
     sent = open_callback.message.sent[-1]
-    assert "1. Blog (1)" in sent["text"]
-    assert "2. YouTube (1)" in sent["text"]
+    assert "1. Blog -> 1" in sent["text"]
+    assert "2. YouTube -> 1" in sent["text"]
     numbers = [button.text for button in flat(sent["reply_markup"])]
     assert "1" in numbers
     assert "2" in numbers
