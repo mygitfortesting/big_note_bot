@@ -795,7 +795,10 @@ async def _send_all_notes(
         return
     cards = await asyncio.to_thread(_notes_digest, repo, notes)
     text = notes_digest_text(source, len(notes), cards)
-    await send_parts(event, text, keyboards.source_notes_back(index))
+    markup = keyboards.source_notes_back(
+        index, [note.note_id for note in notes], source
+    )
+    await send_parts(event, text, markup)
 
 
 @router.callback_query(F.data.startswith(f"{Cb.SRC_ALL_NOTES}:"))

@@ -565,13 +565,16 @@ def test_source_actions_show_all_notes(use_repo) -> None:
     assert "<b>TITLE:</b> Second" in text
     assert "<b>COMMENT:</b> Note two" in text
     assert "ID" not in text and SCREEN_HEADER not in text
-    back_datas = [
-        button.callback_data
-        for row in sent["reply_markup"].inline_keyboard
-        for button in row
-    ]
-    assert Cb.src_manage(0) in back_datas
-    assert Cb.TO_MAIN in back_datas
+    assert "<b>1.</b>\n" in text
+    assert "<b>2.</b>\n" in text
+    keyboard = sent["reply_markup"].inline_keyboard
+    texts = [button.text for row in keyboard for button in row]
+    datas = [button.callback_data for row in keyboard for button in row]
+    assert "1" in texts and "2" in texts
+    assert Cb.note_view("1", "Blog") in datas
+    assert Cb.note_view("2", "Blog") in datas
+    assert Cb.src_manage(0) in datas
+    assert Cb.TO_MAIN in datas
 
 
 def test_notes_list_is_numbered_with_code_names(use_repo) -> None:

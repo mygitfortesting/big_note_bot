@@ -134,9 +134,11 @@ def notes_digest_text(source: str, count: int, cards: Sequence[str]) -> str:
     Полный текст всех заметок источника.
 
     ``cards`` — уже готовые карточки (только заполненные поля, без ID/SCREEN
-    и без пустых распорок) в порядке вывода; они разделяются видимой чертой.
+    и без пустых распорок) в порядке вывода; они разделяются видимой чертой,
+    перед каждой карточкой — её порядковый номер.
     """
     head = f"📂 <b>{escape_html(source)}</b> — {count} note(s):"
     if not cards:
         return with_min_width(head)
-    return head + NOTE_SEPARATOR + NOTE_SEPARATOR.join(cards)
+    numbered = [f"<b>{index}.</b>\n{card}" for index, card in enumerate(cards, start=1)]
+    return head + NOTE_SEPARATOR + NOTE_SEPARATOR.join(numbered)

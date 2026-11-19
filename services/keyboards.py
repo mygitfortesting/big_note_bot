@@ -288,9 +288,18 @@ def source_actions(
     return _markup(rows)
 
 
-def source_notes_back(index: int) -> InlineKeyboardMarkup:
-    """Возврат с длинного списка заметок на экран того же источника."""
-    return _markup([[source_back_to_manage_button(index), to_main_row()]])
+def source_notes_back(
+    index: int, note_ids: Sequence[str] = (), source: str = ""
+) -> InlineKeyboardMarkup:
+    """
+    Полный список заметок источника: карточки пронумерованы, номера — кнопки.
+
+    Кнопки-номера 1..N открывают карточку конкретной заметки, внизу —
+    возврат на экран источника и главное меню.
+    """
+    rows = _note_number_rows(note_ids, source)
+    rows.append([source_back_to_manage_button(index), to_main_row()])
+    return _markup(rows)
 
 
 def source_delete_confirm(index: int) -> InlineKeyboardMarkup:
