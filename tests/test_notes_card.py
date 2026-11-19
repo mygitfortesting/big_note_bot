@@ -18,7 +18,12 @@ from services.sheets import (
     Note,
     NoteRepository,
 )
-from services.text_utils import note_card_lines, split_messages
+from services.text_utils import (
+    WIDTH_SPACER,
+    note_card_lines,
+    split_messages,
+    with_min_width,
+)
 from tests.conftest import flat
 from tests.factories import note_row, repo_for, rows_by_header
 from tests.fakes import FakeMessage, FakeState
@@ -381,3 +386,37 @@ def test_split_messages_short_text_single_part() -> None:
     """Короткий текст — одна часть, пустой — ни одной."""
     assert split_messages("hello") == ["hello"]
     assert split_messages("") == []
+
+
+# --- Минимальная ширина пузыря с кнопками ---
+
+
+def test_with_min_width_skips_long_text() -> None:
+    """Длинный (по строке) текст возвращается без распорки."""
+    text = "Short line\n" + "x" * 40
+
+    assert with_min_width(text) == text
+
+
+def test_with_min_width_ignores_html_tags() -> None:
+    """Ширина считается по видимому тексту: теги не делают строку длинной."""
+    text = "<b>" + "a" * 10 + "</b>"
+    result = with_min_width(text)
+
+    assert result.startswith(text)
+    assert result.endswith(WIDTH_SPACER)
+
+
+def test_with_min_width_pads_short_text_without_blank_line() -> None:
+    """Короткий текст: распорка через один перевод строки, без пустой строки."""
+    result = with_min_width("Column: URL\n\n")
+
+    assert result == f"Column: URL\n{WIDTH_SPACER}"
+    assert "\n\n" not in result
+
+
+def test_with_min_width_is_idempotent() -> None:
+    """Повторный вызов не добавляет вторую распорку."""
+    once = with_min_width("hi")
+
+    assert with_min_width(once) == once

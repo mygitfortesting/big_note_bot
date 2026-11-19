@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import html
+import re
 from typing import Sequence
 
 #: Лимит текста одного сообщения Telegram.
@@ -73,11 +74,32 @@ def _is_filled(value: str | None) -> bool:
 #: «Пустая» строка фиксированной ширины: символы Брайля Telegram считает
 #: шириной, поэтому пузырь не сжимается и ряд из двух кнопок не обрезается.
 WIDTH_SPACER = "\u2800" * 26
+#: Минимальная ширина пузыря с кнопками (длина WIDTH_SPACER).
+MIN_BUBBLE_WIDTH = len(WIDTH_SPACER)
+_TAG_RE = re.compile(r"<[^>]+>")
 
 
-def with_min_width(text: str) -> str:
-    """Добивает короткий экран с кнопками до минимальной ширины пузыря."""
-    return f"{text}\n\n{WIDTH_SPACER}"
+def _max_line_width(text: str) -> int:
+    """Самая длинная строка текста без HTML-тегов (ширина пузыря)."""
+    plain = _TAG_RE.sub("", text or "")
+    lines = [line.rstrip() for line in plain.splitlines()]
+    return max((len(line) for line in lines), default=0)
+
+
+def with_min_width(text: str, min_width: int = MIN_BUBBLE_WIDTH) -> str:
+    """
+    Добивает короткий экран с кнопками до минимальной ширины пузыря.
+
+    Если текст и так не уже распорки, он возвращается без изменений;
+    перед распоркой всегда ровно один перевод строки (``\n``), без
+    лишней пустой строки внизу сообщения.
+    """
+    target = (text or "").rstrip("\n")
+    if target.endswith(WIDTH_SPACER):
+        target = target[: -len(WIDTH_SPACER)].rstrip("\n")
+    if _max_line_width(target) >= min_width:
+        return target
+    return f"{target}\n{WIDTH_SPACER}"
 
 
 def note_card_lines(
