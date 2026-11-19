@@ -488,16 +488,42 @@ def test_empty_source_keeps_action_buttons(use_repo) -> None:
     rows = sent["reply_markup"].inline_keyboard
     texts = [button.text for row in rows for button in row]
     datas = [button.callback_data for row in rows for button in row]
+    # Список заметок: «➕ Add Note» + «✏️ Edit Source», затем действия и меню.
     assert texts == [
         buttons.ADD_NOTE_ROW,
-        buttons.RENAME_SOURCE,
-        buttons.DELETE_SOURCE,
+        buttons.EDIT_SOURCE,
         buttons.BACK,
         buttons.TO_MAIN,
     ]
     assert Cb.src_new_note(0) in datas
     assert Cb.src_rename(0) in datas
     assert Cb.MENU_SOURCES in datas
+
+
+def test_empty_source_manage_screen(use_repo) -> None:
+    """Экран источника без заметок: заголовок и действия с подписями."""
+    repo, _ = repo_for([])
+    repo.add_source("Podcast")
+    use_repo(repo)
+    state = FakeState()
+
+    asyncio.run(notes_handler.cb_manage_sources(_callback(Cb.MENU_SOURCES), state))
+    manage_callback = _callback(Cb.src_manage(0))
+    asyncio.run(notes_handler.cb_source_manage(manage_callback, state))
+
+    sent = manage_callback.message.sent[-1]
+    assert "<b>Podcast</b>" in sent["text"]
+    assert "Choose an action:" in sent["text"]
+    texts = [
+        button.text for row in sent["reply_markup"].inline_keyboard for button in row
+    ]
+    assert texts == [
+        buttons.ADD_NOTE,
+        buttons.RENAME_SOURCE,
+        buttons.DELETE_SOURCE,
+        buttons.BACK,
+        buttons.TO_MAIN,
+    ]
 
 
 def test_notes_list_is_numbered_with_code_names(use_repo) -> None:
