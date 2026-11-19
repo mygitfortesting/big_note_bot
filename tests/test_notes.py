@@ -901,6 +901,98 @@ def test_wizard_next_skips_to_next_column(use_repo) -> None:
     assert "Fresh" in fourth_next.message.sent[-1]["text"]
 
 
+def test_wizard_photo_saves_file_id_into_screen(use_repo) -> None:
+    """Фото на шаге SCREEN: file_id пишется в SCREEN, мастер идёт дальше."""
+    repo, sheet = repo_for([note_row("1", "Blog", "a")])
+    use_repo(repo)
+    state = FakeState()
+    source = "Blog"
+    asyncio.run(notes_handler.cb_select_source(_callback(Cb.src_select(source)), state))
+    title_message = FakeMessage("Fresh", user_id=1)
+    asyncio.run(notes_handler.got_note_title(title_message, state))
+
+    # DESCRIPTION → URL → SCREEN: проматываем две колонки кнопкой «Next».
+    asyncio.run(notes_handler.cb_wizard_next(_callback(Cb.WIZARD_NEXT), state))
+    asyncio.run(notes_handler.cb_wizard_next(_callback(Cb.WIZARD_NEXT), state))
+    assert state.data["columns"][state.data["step"]][1] == SCREEN_HEADER
+    note_id = state.data["note_id"]
+
+    photo_message = FakeMessage("", user_id=1)
+    photo_message.photo = [_Photo("small"), _Photo("wizard_file_id")]
+    asyncio.run(notes_handler.wizard_got_photo(photo_message, state))
+
+    screen_row = next(row for row in rows_by_header(sheet) if row[ID_HEADER] == note_id)
+    assert screen_row[SCREEN_HEADER] == "wizard_file_id"
+    assert state.state == NoteStates.wizard_step
+    assert state.data["step"] == 3
+    assert "<b>COMMENT</b>" in photo_message.sent[-1]["text"]
+
+
+def test_wizard_completes_after_last_column(use_repo) -> None:
+    """После последней колонки мастер закрывается и открывает карточку."""
+    repo, _ = repo_for([note_row("1", "Blog", "a")])
+    use_repo(repo)
+    state = FakeState()
+    source = "Blog"
+    asyncio.run(notes_handler.cb_select_source(_callback(Cb.src_select(source)), state))
+    title_message = FakeMessage("Fresh", user_id=1)
+    asyncio.run(notes_handler.got_note_title(title_message, state))
+    note_id = state.data["note_id"]
+
+    value_message = FakeMessage("Some description", user_id=1)
+    asyncio.run(notes_handler.wizard_got_text(value_message, state))
+    asyncio.run(notes_handler.cb_wizard_next(_callback(Cb.WIZARD_NEXT), state))
+    asyncio.run(notes_handler.cb_wizard_next(_callback(Cb.WIZARD_NEXT), state))
+    assert state.state == NoteStates.wizard_step
+    assert state.data["columns"][state.data["step"]][1] == COMMENT_HEADER
+
+    comment_message = FakeMessage("Last field", user_id=1)
+    asyncio.run(notes_handler.wizard_got_text(comment_message, state))
+
+    assert state.state is None
+    card = comment_message.sent[-1]["text"]
+    assert "<b>DESCRIPTION:</b> Some description" in card
+    assert "<b>COMMENT:</b> Last field" in card
+    datas = [
+        button.callback_data
+        for row in comment_message.sent[-1]["reply_markup"].inline_keyboard
+        for button in row
+    ]
+    assert Cb.note_edit_menu(note_id) in datas
+
+
+def test_saved_source_alerts_on_stale_index(use_repo) -> None:
+    """Устаревший индекс: список из FSM пуст — alert SOURCE_LOST, без падения."""
+    repo, _ = repo_for([note_row("1", "Blog", "a")])
+    use_repo(repo)
+    state = FakeState()
+
+    callback = _callback(Cb.src_manage(0))
+    asyncio.run(notes_handler.cb_source_manage(callback, state))
+
+    assert callback.answers, "Bot answered nothing"
+    assert callback.answers[-1]["text"] == buttons.SOURCE_LOST
+    assert callback.answers[-1]["show_alert"] is True
+    assert callback.message.sent == []
+
+
+@pytest.mark.parametrize("saved", [["Blog"], ["Blog", "News"]])
+def test_saved_source_alerts_on_out_of_range_index(use_repo, saved: list[str]) -> None:
+    """Индекс вне сохранённого списка (например, после удаления) — alert."""
+    repo, _ = repo_for([note_row("1", "Blog", "a")])
+    use_repo(repo)
+    state = FakeState()
+    saved_counts = [1] * len(saved)
+    asyncio.run(state.update_data(source_list=saved, source_counts=saved_counts))
+
+    callback = _callback(Cb.src_manage(len(saved)))
+    asyncio.run(notes_handler.cb_source_manage(callback, state))
+
+    assert callback.answers, "Bot answered nothing"
+    assert callback.answers[-1]["text"] == buttons.SOURCE_LOST
+    assert callback.message.sent == []
+
+
 def test_sources_menu_rename_flow(use_repo) -> None:
     """Переименование источника: Rename → новое имя → отчёт и возврат."""
     repo, sheet = repo_for([note_row("1", "Blog", "a"), note_row("2", "Blog", "b")])

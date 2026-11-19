@@ -393,7 +393,7 @@ async def wizard_got_photo(message: types.Message, state: FSMContext) -> None:
     file_id = message.photo[-1].file_id
     try:
         await asyncio.to_thread(
-            repo.update_cell_at, _row_of(repo, note_id), columns[step][0], file_id
+            _write_note_cell, repo, note_id, columns[step][0], file_id
         )
     except Exception as e:
         await send_error_message(message, e)
@@ -420,9 +420,7 @@ async def wizard_got_text(message: types.Message, state: FSMContext) -> None:
     if value.lower() in CLEAR_VALUES:
         value = ""
     try:
-        await asyncio.to_thread(
-            repo.update_cell_at, _row_of(repo, note_id), col_index, value
-        )
+        await asyncio.to_thread(_write_note_cell, repo, note_id, col_index, value)
     except Exception as e:
         await send_error_message(message, e)
         return
@@ -675,9 +673,7 @@ async def got_field_value(message: types.Message, state: FSMContext) -> None:
     if value.lower() in CLEAR_VALUES:
         value = ""
     try:
-        await asyncio.to_thread(
-            repo.update_cell_at, _row_of(repo, note_id), col_index, value
-        )
+        await asyncio.to_thread(_write_note_cell, repo, note_id, col_index, value)
         await status_message(message, buttons.NOTE_SAVED)
         await show_note(message, note_id)
     except Exception as e:
@@ -690,6 +686,13 @@ def _row_of(repo: NoteRepository, note_id: str) -> int:
     if row is None:
         raise ValueError(f"Note {note_id} not found.")
     return row
+
+
+def _write_note_cell(
+    repo: NoteRepository, note_id: str, col_index: int, value: str
+) -> None:
+    """Синхронно пишет значение в ячейку заметки (вызывать через to_thread)."""
+    repo.update_cell_at(_row_of(repo, note_id), col_index, value)
 
 
 # --- Скриншот ---
@@ -739,9 +742,8 @@ async def got_photo(message: types.Message, state: FSMContext) -> None:
         return
     file_id = message.photo[-1].file_id
     try:
-        row = await asyncio.to_thread(_row_of, repo, note_id)
-        col_index = _screen_column(repo)
-        await asyncio.to_thread(repo.update_cell_at, row, col_index, file_id)
+        col_index = await asyncio.to_thread(_screen_column, repo)
+        await asyncio.to_thread(_write_note_cell, repo, note_id, col_index, file_id)
         await status_message(message, buttons.PHOTO_SAVED)
         await show_note(message, note_id)
     except Exception as e:
@@ -785,11 +787,15 @@ async def cb_note_delete(callback: types.CallbackQuery, state: FSMContext) -> No
         await send_error_message(callback, e)
         return
     await status_message(callback, buttons.NOTE_DELETED)
-    if source:
+    if not source:
+        await send_main_menu(callback)
+        return
+    try:
         notes = await asyncio.to_thread(repo.list_by_source, source)
         await _send_notes_list(callback, repo, source, notes, state)
-    else:
-        await send_main_menu(callback)
+    except Exception as e:
+        # Строка уже удалена: падение списка не должно оставлять бота молчащим
+        await send_error_message(callback, e)
 
 
 # --- Управление источниками: список по номерам ---
@@ -1053,10 +1059,15 @@ async def got_renamed_source(message: types.Message, state: FSMContext) -> None:
         return
     await status_message(message, buttons.SOURCE_RENAMED.format(count=updated))
     await show_sources_manage(message, state)
-    if new_source:
+    if not new_source:
+        return
+    try:
         # Возврат к списку заметок переименованного источника.
         notes = await asyncio.to_thread(repo.list_by_source, new_source)
         await _send_notes_list(message, repo, new_source, notes, state)
+    except Exception as e:
+        # Переименование уже прошло — об ошибке списка сообщаем, а не падаем
+        await send_error_message(message, e)
 
 
 @router.callback_query(F.data.startswith(f"{Cb.SRC_DEL}:"))
