@@ -290,25 +290,25 @@ async def cb_select_source(callback: types.CallbackQuery, state: FSMContext) -> 
 # --- Навигация по источникам ---
 
 
-@router.callback_query(F.data == Cb.SRC_LIST)
-async def cb_sources_list(callback: types.CallbackQuery, state: FSMContext) -> None:
-    """«📂 Notes by source»: список источников с количеством заметок."""
-    await ack_callback(callback)
-    await state.clear()
-    repo = _repo(callback)
-    if repo is None:
-        return
-    try:
-        counts = await asyncio.to_thread(_source_counts, repo)
-    except Exception as e:
-        await send_error_message(callback, e)
-        return
-    if not counts:
-        await show_main_menu(callback, buttons.NO_SOURCES, keyboards.back_to_main())
-        return
-    await show_main_menu(
-        callback, buttons.SOURCES_PROMPT, keyboards.sources_with_counts(counts)
-    )
+# @router.callback_query(F.data == Cb.SRC_LIST)
+# async def cb_sources_list(callback: types.CallbackQuery, state: FSMContext) -> None:
+#     """«📂 Notes by source»: список источников с количеством заметок."""
+#     await ack_callback(callback)
+#     await state.clear()
+#     repo = _repo(callback)
+#     if repo is None:
+#         return
+#     try:
+#         counts = await asyncio.to_thread(_source_counts, repo)
+#     except Exception as e:
+#         await send_error_message(callback, e)
+#         return
+#     if not counts:
+#         await show_main_menu(callback, buttons.NO_SOURCES, keyboards.back_to_main())
+#         return
+#     await show_main_menu(
+#         callback, buttons.SOURCES_PROMPT, keyboards.sources_with_counts(counts)
+#     )
 
 
 def _source_counts(repo: NoteRepository) -> list[tuple[str, int]]:

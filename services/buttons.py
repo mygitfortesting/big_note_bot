@@ -8,7 +8,7 @@ ADD_NOTE = "➕ Add note"
 OPEN_TABLE = "🪎 Open Table"
 
 # --- Кнопки главного меню ---
-BY_SOURCE = "📂 Notes by source"
+# BY_SOURCE = "📂 Notes by source"
 COLUMNS = "📊 Columns"
 SOURCES = "🗂 Sources"
 

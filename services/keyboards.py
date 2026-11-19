@@ -55,7 +55,7 @@ def main_menu() -> InlineKeyboardMarkup:
             ],
             [
                 _button(buttons.SOURCES, Cb.MENU_SOURCES),
-                _button(buttons.BY_SOURCE, Cb.SRC_LIST),
+                # _button(buttons.BY_SOURCE, Cb.SRC_LIST),
             ],
             [_button(buttons.COLUMNS, Cb.MENU_COLUMNS)],
         ]
@@ -137,7 +137,7 @@ def sources_with_counts(
 # --- Управление источниками ---
 
 #: Сколько кнопок-номеров в одном ряду списка источников.
-SOURCE_NUMBER_ROW = 5
+SOURCE_NUMBER_ROW = 8
 
 
 def sources_manage(count: int) -> InlineKeyboardMarkup:
@@ -152,8 +152,8 @@ def sources_manage(count: int) -> InlineKeyboardMarkup:
         for index in range(min(count, PAGE_SIZE))
     ]
     rows = _rows(numbers, SOURCE_NUMBER_ROW)
-    rows.append([_button(buttons.NEW_SOURCE, Cb.SRC_ADD)])
-    rows.append([to_main_row()])
+    rows.append([_button(buttons.NEW_SOURCE, Cb.SRC_ADD), to_main_row()])
+    # rows.append([to_main_row()])
     return _markup(rows)
 
 
@@ -221,7 +221,7 @@ def notes(
                 _button(buttons.EDIT_SOURCE, Cb.src_rename(source_index)),
             ]
         )
-    rows.append([_button(buttons.BACK, Cb.SRC_LIST), to_main_row()])
+    rows.append([_button(buttons.BACK, Cb.MENU_SOURCES), to_main_row()])
     return _markup(rows)
 
 

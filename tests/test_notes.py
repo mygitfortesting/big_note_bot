@@ -490,7 +490,7 @@ def test_empty_source_keeps_action_buttons(use_repo) -> None:
     ]
     assert Cb.src_new_note(0) in datas
     assert Cb.src_rename(0) in datas
-    assert Cb.SRC_LIST in datas
+    assert Cb.MENU_SOURCES in datas
 
 
 def test_notes_list_is_numbered_with_code_names(use_repo) -> None:
