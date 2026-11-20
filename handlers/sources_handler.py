@@ -19,7 +19,7 @@ from handlers.notes_common import (
 from handlers.wizard_handler import ask_note_title
 from services import buttons, keyboards
 from services.callback import Cb
-from services.sheets import Note, NoteRepository
+from services.sheets import SOURCE_HEADER, Note, NoteRepository
 from services.telegram_io import (
     ack_callback,
     alert,
@@ -170,6 +170,42 @@ async def _resolve_saved_source(
     return index, source, count
 
 
+@sources_router.callback_query(F.data.startswith(f"{Cb.NOTE_BACK}:"))
+async def cb_note_back(callback: types.CallbackQuery, state: FSMContext) -> None:
+    """«⬅️ Back» из карточки: список заметок источника найденной заметки.
+
+    Источник берётся из строки таблицы по ``note_id``, а не из
+    callback_data: в имени может быть ``:`` (``Resepies: Breakfast``),
+    и передавать его сырым в кнопку нельзя — разбор ``prefix:<source>``
+    вернул бы обрезанное имя и пустой экран.
+    """
+    await ack_callback(callback)
+    ref = Cb.parse_note(callback.data or "", Cb.NOTE_BACK)
+    repo = repo_of(callback)
+    if ref is None or repo is None:
+        return
+    try:
+        note = await asyncio.to_thread(repo.get, ref.note_id)
+        headers = repo.headers() if note is not None else []
+    except Exception as e:
+        await send_error_message(callback, e)
+        return
+    if note is None:
+        await alert(callback, buttons.SOURCE_LOST)
+        return
+    source = note.field(headers, SOURCE_HEADER).strip()
+    if not source:
+        await show_main_menu(callback, buttons.SOURCE_LOST, keyboards.back_to_main())
+        return
+    await state.clear()
+    try:
+        await _remember_source_list(state, repo)
+        notes = await asyncio.to_thread(repo.list_by_source, source)
+        await send_notes_list(callback, repo, source, notes, state)
+    except Exception as e:
+        await send_error_message(callback, e)
+
+
 @sources_router.callback_query(F.data.startswith(f"{Cb.SRC_NOTES}:"))
 async def cb_source_notes(callback: types.CallbackQuery, state: FSMContext) -> None:
     """Все заметки источника по алфавиту (TITLE без учёта регистра)."""
@@ -200,9 +236,6 @@ async def got_new_source(message: types.Message, state: FSMContext) -> None:
     source = (message.text or "").strip()
     if not source:
         await status_message(message, "⚠️ Source name must not be empty.")
-        return
-    if ":" in source:
-        await status_message(message, "⚠️ Source name must not contain ':' symbol.")
         return
     await state.clear()
     repo = repo_of(message)
@@ -404,10 +437,6 @@ async def got_renamed_source(message: types.Message, state: FSMContext) -> None:
         return
     if not new_source:
         await status_message(message, "⚠️ Source name must not be empty.")
-        await show_sources_manage(event=message, repo=repo, state=state)
-        return
-    if ":" in new_source:
-        await status_message(message, "⚠️ Source name must not contain ':' symbol.")
         await show_sources_manage(event=message, repo=repo, state=state)
         return
     user_id = user_id_of(message) or repo._user_id

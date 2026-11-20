@@ -832,8 +832,6 @@ class NoteRepository(_SheetBound):
         name = (source or "").strip()
         if not name:
             raise ValueError("Source name must not be empty.")
-        if ":" in name:
-            raise ValueError("Source name must not contain ':' symbol.")
         values = self._all_values()
         headers = headers_of(values)
         if not headers:  # пустой лист без шапки: восстанавливаем базовую
@@ -920,8 +918,6 @@ class NoteRepository(_SheetBound):
         name = (new_source or "").strip()
         if not name:
             raise ValueError("Source name must not be empty.")
-        if ":" in name:
-            raise ValueError("Source name must not contain ':' symbol.")
         values = self._all_values()
         headers = headers_of(values)
         row_indexes = self._source_rows(old_source, values, headers)

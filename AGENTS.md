@@ -10,8 +10,8 @@ Telegram-бот заметок: `Python 3.13`, `aiogram 3.x`, `gspread`, `openai
 - `bot.py` — общие команды (`/start`, `/help`, `/table`, `/refresh`), кнопка `🔄 Sync` (общий `sync_table`: `invalidate_cache(user_id_of(event))` + прогрев, одно сообщение `SYNCED`), хелперы `_start_session` / `_ack_and_hide` / `_require_admin`, сборка роутеров (`register_routers`) и запуск (`_start_health_server` ➔ `_setup_bot` ➔ `_run_polling`).
 - `config.py` — `.env`, `Bot`/`Dispatcher`, доступ к Sheets (`notes_sheet_name`, `setup_user_sheets`), настройки AI (`ai_api_key`, `ai_base_url` → `https://openrouter.ai`, `ai_model` → `openrouter/free`).
 - `services/sheets.py` — единственный слой `gspread`: `SheetCache` (TTL 300 с, фоллбэк на stale при 429), `NoteRepository` (в т.ч. `get_ai_prompt`), `ColumnService`.
-- `services/ai_parser.py` — разбор сообщения в `AiNoteDraft`: `fetch_page` (ссылка, таймаут 10 с), `extract_json`, `system_prompt` из шапки листа + `AI_PROMT`, `field_headers`, `draft_fields`, `AiVisionError`. Клиент модели инъектируется.
-- `services/callback.py` — реестр `Cmd`/`Cb` (в списках индексы или короткие `note_id`: лимит 64 байта).
+- `services/ai_parser.py` — разбор сообщения в `AiNoteDraft`: `fetch_page` (ссылка, таймаут 10 с), `extract_json`, `system_prompt` из шапки листа + `AI_PROMT`, `field_headers`, `draft_fields`, `AiVisionError`. Клиент модели инъектируется. Ссылка без JSON от модели -> `_link_draft` (URL в `title` и в колонку `URL`), для текста — `AiDraftError` с началом ответа (`RAW_PREVIEW_LIMIT`).
+- `services/callback.py` — реестр `Cmd`/`Cb` (в списках индексы или короткие `note_id`: лимит 64 байта). Имя источника всегда едет в хвосте `prefix:<note_id>:<source>` и разбирается через `split(":", maxsplit)` — двоеточия внутри не режутся.
 - `services/buttons.py`, `services/keyboards.py` — тексты и `InlineKeyboardMarkup` (`_rows` проверяет `per_row >= 1`).
 - `services/telegram_io.py` — вывод в Telegram (`show_main_menu`, `status_message`, `send_parts`, `send_error_message`, `alert`) и `user_lock(user_id)`.
 - `services/text_utils.py` — `escape_html`, `split_messages`, `note_card_text`, `with_min_width`.
@@ -21,7 +21,7 @@ Telegram-бот заметок: `Python 3.13`, `aiogram 3.x`, `gspread`, `openai
 ## 3. Инварианты
 - **Колонки:** `ID | SOURCE | TITLE | DESCRIPTION | URL | SCREEN | [пользовательские...] | COMMENT`.
 - `ID`, `SOURCE`, `TITLE` (первые 3) и `COMMENT` (последняя) нельзя удалить, переименовать или сдвинуть; `SCREEN` нельзя удалить. Новые колонки — перед `COMMENT`.
-- Лист отсортирован по `SOURCE` ➔ `TITLE` (без учёта регистра). В именах источников запрещён `:`.
+- Лист отсортирован по `SOURCE` ➔ `TITLE` (без учёта регистра). В именах источников двоеточие `:` **разрешено**: запрещено только пустое имя (`add_source`/`rename_source`).
 - В `SCREEN` хранится только `file_id` фото; карточка показывает лишь заполненные поля (без пустых, `-`, `—`, `ID`, `SCREEN`).
 - Удаление заметки — через подтверждение (`Cb.NOTE_DEL_ASK` ➔ `Cb.NOTE_DEL`).
 - Кэш: любая запись через бота его инвалидирует; ручные правки видны только после `🔄 Sync` / `/refresh` (`invalidate_cache` + прогрев).
@@ -32,6 +32,7 @@ Telegram-бот заметок: `Python 3.13`, `aiogram 3.x`, `gspread`, `openai
 - Кастомные правила — строка `AI_PROMT` на листе (текст из первой непустой колонки после `TITLE`), читается через `get_ai_prompt`.
 - Черновик: `✅ Save`, `🗂 Change source`, `✏️ Edit title`, `✖️ Cancel`; запись — `NoteRepository.create` под `user_lock(user_id)`.
 - Нет vision у модели — `AiVisionError`/`is_vision_error` ➔ подсказка сменить `AI_MODEL`.
+- Промпт запрещает извинения и «нет доступа к ссылке»: даже голый URL без текста страницы модель обязана вернуть JSON (`url`, заголовок из домена/пути). Блокирующие парсинг ссылки (`lnkd.in`, LinkedIn) не валят сценарий: `parse` логирует ответ и возвращает базовый черновик ссылки.
 
 ## 5. Стандарты кода и тестов
 - `ruff` (`line-length = 88`, `E,F,I,W`), `ruff format`, `mypy` без ошибок (`tests/` исключён).

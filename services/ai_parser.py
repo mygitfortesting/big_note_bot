@@ -16,15 +16,19 @@ from __future__ import annotations
 
 import base64
 import json
+import logging
 import re
 from dataclasses import dataclass, field
 from html.parser import HTMLParser
 from typing import Any, Protocol, Sequence
 
+logger = logging.getLogger(__name__)
+
 __all__ = [
     "AI_PROMPT_HEADER",
     "PAGE_TEXT_LIMIT",
     "PAGE_TIMEOUT",
+    "RAW_PREVIEW_LIMIT",
     "AiClient",
     "AiDraftError",
     "AiNoteDraft",
@@ -39,6 +43,9 @@ __all__ = [
     "page_kind",
     "system_prompt",
 ]
+
+#: Сколько символов ответа модели кладём в текст ошибки и в лог.
+RAW_PREVIEW_LIMIT = 150
 
 #: Заголовок секции кастомных правил в системном промпте.
 AI_PROMPT_HEADER = "CUSTOM RULES FROM THE USER TABLE:"
@@ -150,6 +157,12 @@ def system_prompt(
         "You turn one user message into a note draft.",
         "Answer with a strict JSON object and nothing else:",
         '{"source": "...", "title": "...", "fields": ' + schema + "}",
+        "Never reply with apologies, explanations or questions.",
+        "Never say that you cannot open the link or have no internet access.",
+        "A message may be a bare URL without page text: still answer with JSON.",
+        "Then put the link itself into the url field and a short title derived "
+        "from the domain or the URL path into title.",
+        "Omit any field you cannot infer from the message or the page text.",
         "Choose source from the existing list, otherwise invent a short one.",
         "Use fields only for these columns: "
         + (", ".join(columns) if columns else "(none)"),
@@ -262,7 +275,7 @@ def extract_json(raw: str) -> dict[str, Any]:
     text = _FENCE_RE.sub("", text).strip()
     start, end = text.find("{"), text.rfind("}")
     if start == -1 or end <= start:
-        raise AiDraftError("AI returned no JSON object.")
+        raise AiDraftError("AI returned no JSON object: " + text[:RAW_PREVIEW_LIMIT])
     try:
         data = json.loads(text[start : end + 1])
     except json.JSONDecodeError as error:
@@ -322,7 +335,37 @@ class AiNoteParser:
                 raise AiVisionError(self._model) from error
             raise
         raw = response.choices[0].message.content or ""
-        return self._draft_from(raw, file_id=file_id, wanted=columns)
+        try:
+            return self._draft_from(raw, file_id=file_id, wanted=columns)
+        except AiDraftError:
+            if page_kind(text) != "link":
+                raise
+            # Блокирующие парсинг ссылки (lnkd.in, LinkedIn) часто приводят
+            # к ответу «не могу открыть ссылку». Не роняем сценарий:
+            # отдаём базовый черновик, который пользователь доделает сам.
+            logger.warning(
+                "AI returned no usable JSON for link %s: %r",
+                text.strip(),
+                (raw or "").strip()[:RAW_PREVIEW_LIMIT],
+            )
+            return self._link_draft(text, file_id=file_id, wanted=columns)
+
+    @staticmethod
+    def _link_draft(
+        text: str, file_id: str = "", wanted: Sequence[str] = ()
+    ) -> AiNoteDraft:
+        """
+        Базовый черновик для ссылки: URL в колонку URL, сам URL — в title.
+
+        Поле ``url`` ищется по имени колонки (без учёта регистра), поэтому
+        работает и для переименованных шапок; фото (``file_id``) не теряется.
+        """
+        link = (text or "").strip()
+        url_header = next(
+            (name.strip() for name in wanted if name.strip().upper() == "URL"), ""
+        )
+        fields = {url_header: link} if url_header else {}
+        return AiNoteDraft(title=link, fields=fields, screen=file_id)
 
     # --- сообщение для модели ---
 

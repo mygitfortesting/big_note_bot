@@ -272,19 +272,34 @@ def test_add_source_is_case_insensitive_and_idempotent() -> None:
     assert repo.list_sources_with_counts() == [("Blog", 1)]
 
 
-def test_source_name_validation_rejects_empty_and_colon() -> None:
-    """Пустое имя или ':' не принимается ни при добавлении, ни при переименовании."""
+def test_source_name_validation_rejects_empty_only() -> None:
+    """Пустое имя не принимается, а ':' — обычный символ источника."""
     repo, _ = repo_for([note_row("1", "Blog", "a")])
 
     with pytest.raises(ValueError):
         repo.add_source("   ")
     with pytest.raises(ValueError):
         repo.rename_source("Blog", "   ")
-    with pytest.raises(ValueError):
-        repo.add_source("bad:name")
-    with pytest.raises(ValueError):
-        repo.rename_source("Blog", "bad:name")
-    assert repo.list_sources() == ["Blog"]
+
+    assert repo.add_source("Resepies: Breakfast") is True
+    assert "Resepies: Breakfast" in repo.list_sources()
+    assert repo.list_sources() == ["Blog", "Resepies: Breakfast"]
+
+
+def test_rename_source_keeps_colon_in_name() -> None:
+    """Переименование в имя с ':' сохраняется без обрезки."""
+    repo, sheet = repo_for([note_row("1", "Blog", "a"), note_row("2", "Blog", "b")])
+
+    assert repo.rename_source("Blog", "Resepies: Breakfast") == 2
+
+    assert repo.list_sources_with_counts() == [("Resepies: Breakfast", 2)]
+    assert all(
+        row[SOURCE_HEADER] == "Resepies: Breakfast" for row in rows_by_header(sheet)
+    )
+    assert [note.note_id for note in repo.list_by_source("Resepies: Breakfast")] == [
+        "1",
+        "2",
+    ]
 
 
 def test_create_fills_blank_source_row() -> None:

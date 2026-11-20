@@ -4,7 +4,9 @@
 Имена собираются ТОЛЬКО отсюда: опечатка в хендлере или клавиатуре
 невозможна, потому что и там и там используется одна константа.
 Параметрические кнопки кодируются ``<prefix>:<payload>`` и разбираются
-статическими методами ``Cb``.
+статическими методами ``Cb``. Двоеточие в именах источников разрешено,
+поэтому источник всегда едет в хвосте ``prefix:<note_id>:<source>``
+и разбирается через ``split(":", maxsplit)`` — без обрезки имени.
 """
 
 from __future__ import annotations
@@ -90,6 +92,9 @@ class Cb:
     NOTE_EDIT_MENU = "note_edit_menu"
     NOTE_EDIT_CELL = "note_edit_cell"
     NOTE_PHOTO = "note_photo"
+    #: «⬅️ Back» из карточки: возврат к списку заметок источника по ``note_id``
+    #: (имя источника в callback_data не передаётся — в нём может быть ``:``).
+    NOTE_BACK = "note_back"
     NOTE_DEL_ASK = "note_del_ask"
     NOTE_DEL = "note_del"
     COL_ADD = "col_add"
@@ -104,17 +109,27 @@ class Cb:
 
     @classmethod
     def _join(cls, prefix: str, *parts: object) -> str:
-        """Собирает callback_data ``prefix:part1:part2``."""
-        encoded = [str(part).replace(cls._SEP, " ") for part in parts]
-        return cls._SEP.join([prefix, *encoded])
+        """Собирает callback_data ``prefix:part1:part2``.
+
+        Части не кодируются: ``:`` в имени источника должно доехать
+        до хендлера в целости, поэтому разбор идёт с ``maxsplit``.
+        """
+        return cls._SEP.join([prefix, *[str(part) for part in parts]])
 
     @classmethod
-    def _split(cls, data: str, prefix: str) -> tuple[str, ...] | None:
-        """Возвращает хвост callback_data, если он начинается с ``prefix:``."""
+    def _split(
+        cls, data: str, prefix: str, maxsplit: int = -1
+    ) -> tuple[str, ...] | None:
+        """Возвращает хвост callback_data, если он начинается с ``prefix:``.
+
+        ``maxsplit`` ограничивает число разбиений справа: для
+        ``prefix:<note_id>:<source>`` достаточно двух, и двоеточия внутри
+        имени источника остаются частью последней части.
+        """
         marker = prefix + cls._SEP
         if not data.startswith(marker):
             return None
-        return tuple(data[len(marker) :].split(cls._SEP))
+        return tuple(data[len(marker) :].split(cls._SEP, maxsplit))
 
     # --- Источники ---
 
@@ -211,6 +226,11 @@ class Cb:
         return cls._join(cls.NOTE_PHOTO, note_id)
 
     @classmethod
+    def note_back(cls, note_id: str) -> str:
+        """Возврат к списку заметок источника (источник ищется по ``note_id``)."""
+        return cls._join(cls.NOTE_BACK, note_id)
+
+    @classmethod
     def note_del_ask(cls, note_id: str) -> str:
         """Запросить подтверждение удаления заметки."""
         return cls._join(cls.NOTE_DEL_ASK, note_id)
@@ -222,8 +242,12 @@ class Cb:
 
     @classmethod
     def parse_note(cls, data: str, prefix: str) -> NoteRef | None:
-        """Разбирает ``prefix:<note_id>[:<tail>]``."""
-        parts = cls._split(data, prefix)
+        """Разбирает ``prefix:<note_id>[:<tail>]``.
+
+        ``maxsplit=1``: ``tail`` (источник) может сам содержать ``:``
+        (``Resepies: Breakfast``) и должен остаться целым.
+        """
+        parts = cls._split(data, prefix, 1)
         if not parts or not parts[0]:
             return None
         tail = parts[1] if len(parts) > 1 else ""

@@ -157,6 +157,52 @@ def test_note_card_buttons() -> None:
     assert Cb.note_edit_menu("id1") in datas
     assert Cb.note_del_ask("id1") in datas
     assert Cb.note_edit_cell("id1", 2) not in datas
+    # «⬅️ Back» ведёт к источнику по note_id, а не по сырому имени.
+    assert Cb.note_back("id1") in datas
+    no_source_markup = keyboards.note_card("id1", "")
+    assert flat(no_source_markup)[-2].callback_data == Cb.CANCEL_INPUT
+
+
+def test_note_card_back_opens_source_with_colon(use_repo: UseRepo) -> None:
+    """«⬅️ Back» в карточке из источника «Resepies: Breakfast» открывает его заметки."""
+    source = "Resepies: Breakfast"
+    repo, _ = repo_for(
+        [
+            note_row("a1", source, "Pancakes"),
+            note_row("b2", source, "Omelette"),
+            note_row("c3", "Blog", "Other"),
+        ]
+    )
+    use_repo(repo)
+    state = FakeState()
+    asyncio.run(sources_handler.cb_source_notes(callback(Cb.src_notes("Blog")), state))
+
+    back_callback = callback(Cb.note_back("a1"))
+    asyncio.run(sources_handler.cb_note_back(back_callback, state))
+
+    # callback_data содержит только note_id: «:» в имени не режет разбор.
+    assert back_callback.data == "note_back:a1"
+    sent = back_callback.message.sent[-1]
+    assert all(part in sent["text"] for part in (source, "Pancakes", "Omelette"))
+    assert "Other" not in sent["text"]
+    keyboard = flat(sent["reply_markup"])
+    assert [button.text for button in keyboard][:2] == ["1", "2"]
+    assert all(
+        data in [button.callback_data for button in keyboard]
+        for data in (Cb.note_view("a1", source), Cb.note_view("b2", source))
+    )
+
+
+def test_note_back_reports_missing_note(use_repo: UseRepo) -> None:
+    """Заметку удалили — всплывающее SOURCE_LOST вместо пустого экрана."""
+    repo, _ = repo_for([note_row("a1", "Blog", "Post")])
+    use_repo(repo)
+    back_callback = callback(Cb.note_back("gone"))
+
+    asyncio.run(sources_handler.cb_note_back(back_callback, FakeState()))
+
+    assert back_callback.answers[-1]["text"] == buttons.SOURCE_LOST
+    assert back_callback.message.sent == []
 
 
 def test_edit_field_accepts_any_column_except_id_and_screen() -> None:
@@ -442,23 +488,77 @@ def test_note_delete_executes_under_user_lock(use_repo: UseRepo) -> None:
     assert len(sheet.rows) == 1 and repo.get("1") is None  # Только шапка
 
 
-def test_source_name_with_colon_rejected_in_handlers(use_repo: UseRepo) -> None:
-    """Хендлеры создания и переименования отклоняют имя источника с ':'."""
+def test_source_name_with_colon_accepted_in_handlers(use_repo: UseRepo) -> None:
+    """Хендлеры принимают источник с ':' и при создании, и при переименовании."""
     repo, _ = repo_for([note_row("1", "Blog", "Title")])
     use_repo(repo)
 
     # Добавление
-    msg_add = message("Bad:Source")
+    msg_add = message("Resepies: Breakfast")
     state_add = FakeState()
     asyncio.run(sources_handler.got_new_source(msg_add, state_add))
-    assert any("':'" in sent["text"] for sent in msg_add.sent)
+    assert all("must not contain" not in sent["text"] for sent in msg_add.sent)
+    assert "Resepies: Breakfast" in repo.list_sources()
 
     # Переименование
-    msg_rename = message("Another:Source")
+    msg_rename = message("Another: Source")
     state_rename = FakeState()
     asyncio.run(state_rename.update_data(source="Blog"))
     asyncio.run(sources_handler.got_renamed_source(msg_rename, state_rename))
-    assert any("':'" in sent["text"] for sent in msg_rename.sent)
+    assert all("must not contain" not in sent["text"] for sent in msg_rename.sent)
+    assert "Another: Source" in repo.list_sources()
+    assert "Blog" not in repo.list_sources()
+
+
+def test_source_with_colon_opens_notes_from_buttons(use_repo: UseRepo) -> None:
+    """Источник с ':' открывается из списка, а карточка возвращает в него."""
+    source = "Resepies: Breakfast"
+    repo, _ = repo_for(
+        [note_row("a1", source, "Pancakes"), note_row("b2", "Blog", "Other")]
+    )
+    use_repo(repo)
+    state = FakeState()
+    asyncio.run(sources_handler.show_sources_manage(message("/start"), state, repo))
+
+    # Номер источника в списке -> заметки источника: имя идёт из FSM-списка.
+    manage_callback = callback(Cb.src_manage(1))
+    asyncio.run(sources_handler.cb_source_manage(manage_callback, state))
+
+    sent = manage_callback.message.sent[-1]
+    assert source in sent["text"] and "Pancakes" in sent["text"]
+    datas = [button.callback_data for button in flat(sent["reply_markup"])]
+    assert Cb.note_view("a1", source) in datas
+
+    # Из карточки «⬅️ Back» возвращает в этот же источник без обрезки имени.
+    asyncio.run(notes_handler.show_note(manage_callback, "a1"))
+    note_card = manage_callback.message.sent[-1]
+    back_button = flat(note_card["reply_markup"])[-2]
+    assert back_button.callback_data == Cb.note_back("a1")
+
+    back_callback = callback(back_button.callback_data)
+    asyncio.run(sources_handler.cb_note_back(back_callback, state))
+    back_text = back_callback.message.sent[-1]["text"]
+    assert source in back_text and "Pancakes" in back_text
+    assert "Other" not in back_text
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        pytest.param("Resepies: Breakfast", id="one-colon"),
+        pytest.param("Blog: A: B", id="two-colons"),
+        pytest.param("Time 12:30", id="time"),
+    ],
+)
+def test_parse_note_keeps_colons_in_source(source: str) -> None:
+    """``note_view:<id>:<source>`` не режет двоеточия внутри имени источника."""
+    data = Cb.note_view("a1", source)
+
+    ref = Cb.parse_note(data, Cb.NOTE_VIEW)
+
+    assert ref is not None
+    assert ref.note_id == "a1"
+    assert ref.source == source
 
 
 def test_plain_text_cleans_tags_and_unescapes_entities() -> None:

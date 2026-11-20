@@ -248,7 +248,50 @@ def test_link_page_falls_back_to_url(
 
     assert user_text.startswith("URL: https://example.com")
     assert ("Page title" in user_text) is (mode == "page")
+    # Модель отвечает валидным JSON в обоих режимах — заголовок из ответа.
     assert draft.title == "AI title"
+
+
+def test_blocked_link_falls_back_to_base_draft(
+    monkeypatch: pytest.MonkeyPatch, ai_client: UseAi
+) -> None:
+    """lnkd.in без текста страницы + ответ без JSON: черновик ссылки, не ошибка."""
+    monkeypatch.setattr(ai_parser, "fetch_page", lambda url: ("", ""))
+    ai_client["reply"] = "Sorry, I cannot open this LinkedIn link."
+
+    draft = AiNoteParser(_client(ai_client), "test-model").parse(
+        "https://lnkd.in/eAbCdEf", sources=["Blog"], columns=["URL", "PRICE"]
+    )
+
+    assert draft.title == "https://lnkd.in/eAbCdEf"
+    assert draft.fields == {"URL": "https://lnkd.in/eAbCdEf"}
+    assert draft.source == "" and draft.screen == ""
+
+
+def test_link_without_json_keeps_photo_file_id(
+    monkeypatch: pytest.MonkeyPatch, ai_client: UseAi
+) -> None:
+    """Базовый черновик ссылки не теряет file_id фото и не знает колонки URL."""
+    monkeypatch.setattr(ai_parser, "fetch_page", lambda url: ("", ""))
+    ai_client["reply"] = "I do not have internet access."
+
+    draft = AiNoteParser(_client(ai_client), "test-model").parse(
+        "https://lnkd.in/eAbCdEf", file_id="photo-1", columns=["PRICE"]
+    )
+
+    assert draft.title == "https://lnkd.in/eAbCdEf"
+    assert draft.fields == {} and draft.screen == "photo-1"
+
+
+def test_text_without_json_still_raises_with_preview(ai_client: UseAi) -> None:
+    """Обычный текст без JSON — AiDraftError с началом ответа модели."""
+    ai_client["reply"] = "Sorry, no JSON here at all"
+
+    with pytest.raises(ai_parser.AiDraftError) as error:
+        AiNoteParser(_client(ai_client), "test-model").parse("Forwarded text")
+
+    assert "AI returned no JSON object" in str(error.value)
+    assert "Sorry, no JSON here at all" in str(error.value)
 
 
 def test_parse_keeps_only_known_columns_and_file_id(ai_client: UseAi) -> None:
@@ -538,6 +581,25 @@ def test_ai_note_broken_model_answer_is_reported(
     broken_message = _draft(state, "Some forwarded text")
 
     assert broken_message.sent[-1]["text"] == buttons.AI_FAILED
+    assert len(sheet.rows) == 2
+
+
+def test_ai_note_blocked_link_shows_editable_draft(
+    use_repo: UseRepo, monkeypatch: pytest.MonkeyPatch, ai_client: UseAi
+) -> None:
+    """Модель не открыла lnkd.in — пользователь сразу видит черновик со ссылкой."""
+    ai_client["reply"] = "Sorry, I cannot access external links."
+    monkeypatch.setattr(ai_parser, "fetch_page", lambda url: ("", ""))
+    _, sheet, state = _setup_ai(monkeypatch, ai_client, use_repo)
+
+    link_message = _draft(state, "https://lnkd.in/eAbCdEf")
+
+    preview = link_message.sent[-1]["text"]
+    assert buttons.AI_FAILED not in preview
+    assert "https://lnkd.in/eAbCdEf" in preview
+    markup = link_message.sent[-1]["reply_markup"]
+    buttons_now = [button.text for button in flat(markup)]
+    assert buttons.AI_SAVE in buttons_now
     assert len(sheet.rows) == 2
 
 

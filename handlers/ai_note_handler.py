@@ -63,8 +63,8 @@ class AiStates(StatesGroup):
     wait_message = State()  # ждём текст, ссылку или фото для разбора
 
 
-#: Источник для черновика указан неверно (пусто или с символом ':').
-NO_VALID_SOURCE = "⚠️ Source name must be non-empty and without ':' symbol."
+#: Источник для черновика указан неверно: имя пустое.
+NO_VALID_SOURCE = "⚠️ Source name must not be empty."
 
 
 # --- Разбор сообщения ---
@@ -390,7 +390,7 @@ async def _save_new_source(
     if draft is None:
         await ask_ai_note(message, state)
         return
-    if not name or ":" in name:
+    if not name:
         await status_message(message, NO_VALID_SOURCE)
         return
     try:

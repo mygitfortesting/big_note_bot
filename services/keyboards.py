@@ -214,13 +214,21 @@ def note_photo_button(note_id: str) -> InlineKeyboardButton:
 
 
 def note_view_back_button(note_id: str, source: str) -> InlineKeyboardButton:
-    """«⬅️ Back» — из подтверждения удаления обратно в карточку."""
+    """«⬅️ Back» — из подтверждения удаления обратно в карточку.
+
+    Источник в callback_data не едет: он нужен только текущему экрану,
+    а карточка перезагружается по ``note_id``.
+    """
     return _button(buttons.BACK, Cb.note_view(note_id, source))
 
 
-def note_source_back_button(source: str) -> InlineKeyboardButton:
-    """«⬅️ Back» — из карточки к заметкам её источника."""
-    return _button(buttons.BACK, Cb.src_notes(source))
+def note_source_back_button(note_id: str) -> InlineKeyboardButton:
+    """«⬅️ Back» — к заметкам источника, найденного по ``note_id``.
+
+    Сырое имя источника в callback_data не попадает: ``:`` в названии
+    ломает разбор ``prefix:<source>`` и кнопка вела бы в пустой экран.
+    """
+    return _button(buttons.BACK, Cb.note_back(note_id))
 
 
 def column_rename_button(col_index: int) -> InlineKeyboardButton:
@@ -404,7 +412,7 @@ def notes(
 
 def note_card(note_id: str, source: str) -> InlineKeyboardMarkup:
     """Клавиатура карточки заметки: правка поля, скриншот, удаление и навигация."""
-    back_button = note_source_back_button(source) if source else cancel_row()
+    back_button = note_source_back_button(note_id) if source else cancel_row()
     rows: list[list[InlineKeyboardButton]] = [
         [note_edit_menu_button(note_id), note_delete_ask_button(note_id)],
         [note_photo_button(note_id)],
