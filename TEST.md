@@ -281,8 +281,13 @@ async-клиент не годится.
 
 ---
 
-## `tests/test_bot.py` — сборка приложения
+## `tests/test_bot.py` — сборка приложения, меню, справка и синхронизация
 
 | Тест | Проверяемое правило |
 | --- | --- |
 | `test_register_routers_wiring` | `register_routers()` вызывается без ошибок: каждый роутер подключён ровно один раз (в т.ч. `ai_router` не дублируется внутри `notes_handler.router`), `ai_router` стоит перед роутером заметок (AiStates — раньше поиска), а повторный вызов бросает `RuntimeError` и не раздувает список подроутеров. |
+| `test_main_menu_has_sync_button` | В главном меню есть «🔄 Sync» с `Cb.SYNC`, рядом с «📊 Columns». |
+| `test_help_text_sections` | `/help` разбит на три раздела (создание/просмотр/таблица) и упоминает `✨ AI Note`, `🗂 Sources`, `📊 Columns`, `🔄 Sync`, `/refresh`, `/table`. |
+| `test_cmd_refresh_clears_cache_and_rereads` | `/refresh` сбрасывает кэш, сразу перечитывает лист (новая строка видна) и показывает `buttons.SYNCED` + главное меню. |
+| `test_cb_sync_reuses_same_handler` | «🔄 Sync» ушла в тот же обработчик: кэш сброшен, свежая заметка читается, статус и меню отправлены. |
+| `test_sync_reports_read_error` | Ошибка чтения после сброса кэша показывается пользователю, главное меню всё равно открывается. |

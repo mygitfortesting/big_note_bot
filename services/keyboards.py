@@ -80,6 +80,11 @@ def sources_button() -> InlineKeyboardButton:
     return _button(buttons.SOURCES, Cb.MENU_SOURCES)
 
 
+def sync_button() -> InlineKeyboardButton:
+    """«🔄 Sync» — сбросить кэш и перечитать таблицу."""
+    return _button(buttons.SYNC, Cb.SYNC)
+
+
 def columns_button() -> InlineKeyboardButton:
     """«📊 Columns» — управление колонками листа."""
     return _button(buttons.COLUMNS, Cb.MENU_COLUMNS)
@@ -236,7 +241,7 @@ def main_menu() -> InlineKeyboardMarkup:
     rows = [
         [add_note_button(), ai_note_button()],
         [add_source_button(), sources_button()],
-        [columns_button()],
+        [columns_button(), sync_button()],
     ]
     return _markup(rows)
 
@@ -577,6 +582,7 @@ __all__ = [
     "sources",
     "sources_button",
     "sources_manage",
+    "sync_button",
     "table_link",
     "to_main_row",
     "wizard_another_button",

@@ -24,11 +24,13 @@ from handlers import ai_note_handler, columns_handler, notes_handler
 from services import buttons, keyboards
 from services.callback import Cb, Cmd
 from services.healthcheck import run_health_server
+from services.sheets import invalidate_cache
 from services.telegram_io import (
     ack_callback,
     hide_callback_message,
     require_from_user,
     send_error_message,
+    show_main_menu,
 )
 
 logger = logging.getLogger(__name__)
@@ -112,6 +114,51 @@ async def back_to_main(callback: types.CallbackQuery, state: FSMContext) -> None
     await notes_handler.send_main_menu(callback)
 
 
+# --- Синхронизация с Google Sheets ---
+
+
+async def sync_table(
+    event: types.Message | types.CallbackQuery, state: FSMContext
+) -> None:
+    """
+    Сбрасывает кэш листа и сразу перечитывает его с сервера.
+
+    Нужно после ручных правок в Google Sheets: без этого бот живёт на
+    снимке из кэша (TTL 300 с) и новая строка видна только через несколько
+    минут. Ошибка чтения не оставляет бота молчащим — уходит в
+    ``send_error_message``, меню всё равно открывается.
+    """
+    await state.clear()
+    repo = notes_handler.repo_of(event)
+    if repo is None:
+        return
+    user_id = getattr(repo, "_user_id", None)
+    await asyncio.to_thread(invalidate_cache, user_id)
+    try:
+        # Прогрев: чтение кладёт свежий снимок обратно в кэш.
+        await asyncio.to_thread(repo.all_values)
+    except Exception as e:
+        await send_error_message(event, e)
+        await notes_handler.send_main_menu(event)
+        return
+    await show_main_menu(event, buttons.SYNCED)
+    await notes_handler.send_main_menu(event)
+
+
+@router.message(Command(Cmd.REFRESH))
+async def cmd_refresh(message: types.Message, state: FSMContext) -> None:
+    """ "/refresh": сбросить кэш и перечитать таблицу."""
+    await sync_table(message, state)
+
+
+@router.callback_query(F.data == Cb.SYNC)
+async def cb_sync(callback: types.CallbackQuery, state: FSMContext) -> None:
+    """«🔄 Sync» в главном меню: то же, что /refresh."""
+    await ack_callback(callback)
+    await hide_callback_message(callback)
+    await sync_table(callback, state)
+
+
 # --- Запуск ---
 
 
@@ -139,6 +186,7 @@ async def set_bot_commands() -> None:
             types.BotCommand(command=Cmd.ADD_NOTE, description=buttons.ADD_NOTE),
             types.BotCommand(command=Cmd.HELP, description=buttons.HELP),
             types.BotCommand(command=Cmd.TABLE, description=buttons.OPEN_TABLE),
+            types.BotCommand(command=Cmd.REFRESH, description=buttons.REFRESH),
         ]
     )
 

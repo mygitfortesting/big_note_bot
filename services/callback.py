@@ -22,6 +22,8 @@ class Cmd:
     ADD_NOTE = "add_note"
     ADD_SOURCE = "add_source"
     TABLE = "table"
+    #: «/refresh» — сброс кэша листа и перечитывание свежих данных.
+    REFRESH = "refresh"
 
 
 @dataclass(frozen=True)
@@ -45,6 +47,8 @@ class Cb:
     MENU_COLUMNS = "menu_columns"
     #: «🗂 Sources» — управление источниками (переименование/удаление).
     MENU_SOURCES = "menu_sources"
+    #: «🔄 Sync» — то же, что /refresh: кэш сбрасывается, лист читается заново.
+    SYNC = "sync"
 
     # --- Источники ---
     #: «➕ Add note»: выбор источника из списка или «Новый источник».
