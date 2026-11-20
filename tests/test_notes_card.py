@@ -220,6 +220,106 @@ def test_edit_field_accepts_any_column_except_id_and_screen() -> None:
     assert Cb.note_edit_cell("id1", screen_col) not in datas
 
 
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        pytest.param(
+            "Blog",
+            [
+                "<code>Blog</code>",
+                "<code>Resepies: Breakfast</code>",
+                "<code>YouTube</code>",
+            ],
+            id="plain",
+        ),
+        pytest.param(
+            "<script>",
+            [
+                "<code>&lt;script&gt;</code>",
+                "<code>Resepies: Breakfast</code>",
+            ],
+            id="escaped",
+        ),
+    ],
+)
+def test_edit_source_prompt_lists_existing_sources(
+    use_repo: UseRepo, source: str, expected: list[str]
+) -> None:
+    """Правка SOURCE показывает существующие источники в <code>...</code>."""
+    repo, _ = repo_for(
+        [
+            note_row("a1", "Blog", "Post"),
+            note_row("b2", "Resepies: Breakfast", "Pancakes"),
+            note_row("c3", "YouTube", "Video"),
+            note_row("d4", source, "Other"),
+        ]
+    )
+    use_repo(repo)
+    state = FakeState()
+    source_col = NOTES_HEADERS.index(SOURCE_HEADER) + 1
+    edit_callback = callback(Cb.note_edit_cell("d4", source_col))
+
+    asyncio.run(notes_handler.cb_edit_cell(edit_callback, state))
+
+    text = edit_callback.message.sent[-1]["text"]
+    assert all(part in text for part in expected)
+    assert "or <code>-</code>" not in text
+    assert state.state == notes_handler.NoteStates.wait_value
+
+
+def test_edit_regular_column_hides_source_list(use_repo: UseRepo) -> None:
+    """Для обычной колонки (URL) список источников не выводится."""
+    repo, _ = repo_for(
+        [note_row("a1", "Blog", "Post"), note_row("b2", "YouTube", "Video")]
+    )
+    use_repo(repo)
+    state = FakeState()
+    url_col = NOTES_HEADERS.index("URL") + 1
+    url_callback = callback(Cb.note_edit_cell("a1", url_col))
+
+    asyncio.run(notes_handler.cb_edit_cell(url_callback, state))
+
+    text = url_callback.message.sent[-1]["text"]
+    assert "Blog" not in text and "YouTube" not in text
+    assert "or <code>-</code>" in text
+    assert state.state == notes_handler.NoteStates.wait_value
+
+
+def test_edit_source_rejects_clearing(use_repo: UseRepo) -> None:
+    """«-» в SOURCE не очищает его, а просит ввести непустое имя."""
+    repo, sheet = repo_for([note_row("a1", "Blog", "Post")])
+    use_repo(repo)
+    state = FakeState()
+    source_col = NOTES_HEADERS.index(SOURCE_HEADER) + 1
+    asyncio.run(state.update_data(note_id="a1", col_index=source_col))
+    clear_message = message("-", user_id=1)
+
+    asyncio.run(notes_handler.got_field_value(clear_message, state))
+
+    assert [sent["text"] for sent in clear_message.sent] == [buttons.EDIT_SOURCE_EMPTY]
+    assert rows_by_header(sheet)[0][SOURCE_HEADER] == "Blog"
+    assert state.state == notes_handler.NoteStates.wait_value
+
+
+def test_edit_regular_column_still_clears(use_repo: UseRepo) -> None:
+    """В обычной колонке «-» по-прежнему очищает ячейку."""
+    repo, sheet = repo_for([note_row("a1", "Blog", "Post")])
+    use_repo(repo)
+    state = FakeState()
+    comment_col = NOTES_HEADERS.index(COMMENT_HEADER) + 1
+    asyncio.run(state.update_data(note_id="a1", col_index=comment_col))
+    repo.update_cell_at(2, comment_col, "Old")
+    clear_message = message("-", user_id=1)
+
+    asyncio.run(notes_handler.got_field_value(clear_message, state))
+
+    assert buttons.EDIT_SOURCE_EMPTY not in [
+        sent["text"] for sent in clear_message.sent
+    ]
+    assert buttons.NOTE_SAVED in [sent["text"] for sent in clear_message.sent]
+    assert rows_by_header(sheet)[0][COMMENT_HEADER] == ""
+
+
 # --- Скриншот ---
 
 

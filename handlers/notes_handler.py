@@ -44,6 +44,7 @@ from handlers.wizard_handler import (
 from services import buttons, keyboards
 from services.callback import Cb
 from services.sheets import (
+    SOURCE_HEADER,
     NoteRepository,
     screen_column_index,
     source_column_index,
@@ -156,6 +157,37 @@ async def cb_edit_menu(callback: types.CallbackQuery, state: FSMContext) -> None
     )
 
 
+def _is_source_field(field: str) -> bool:
+    """Колонка — это SOURCE (без учёта регистра и пробелов)."""
+    return field.strip().upper() == SOURCE_HEADER
+
+
+def _source_list_text(sources: list[str]) -> str:
+    """Блок с существующими источниками в ``<code>...</code>`` или пустая строка."""
+    if not sources:
+        return ""
+    items = ", ".join(
+        buttons.EDIT_SOURCE_ITEM.format(source=escape_html(source))
+        for source in sources
+    )
+    return buttons.EDIT_SOURCE_LIST.format(sources=items)
+
+
+async def _source_prompt(repo: NoteRepository, ctx: NoteContext) -> str:
+    """Запрос нового значения SOURCE с подсказкой из существующих источников."""
+    try:
+        sources = await asyncio.to_thread(repo.list_sources)
+    except Exception as e:
+        # Подсказка — бонус: без списка правка всё равно должна работать
+        logger.warning("Could not list sources for the edit prompt: %s", e)
+        sources = []
+    return buttons.EDIT_SOURCE_PROMPT.format(
+        name=escape_html(ctx.title),
+        field=escape_html(SOURCE_HEADER),
+        sources=_source_list_text(sources),
+    )
+
+
 @card_router.callback_query(F.data.startswith(f"{Cb.NOTE_EDIT_CELL}:"))
 async def cb_edit_cell(callback: types.CallbackQuery, state: FSMContext) -> None:
     """Правка конкретной колонки: запоминаем заметку и колонку, ждём текст."""
@@ -181,13 +213,30 @@ async def cb_edit_cell(callback: types.CallbackQuery, state: FSMContext) -> None
         return
     await state.set_state(NoteStates.wait_value)
     await state.update_data(note_id=note_id, col_index=col_index)
+    if _is_source_field(field):
+        # Подсказка со списком: имя источника можно скопировать тапом.
+        prompt = await _source_prompt(repo, ctx)
+    else:
+        prompt = buttons.EDIT_FIELD_PROMPT.format(
+            name=escape_html(ctx.title), field=escape_html(field)
+        )
     await show_main_menu(
         callback,
-        buttons.EDIT_FIELD_PROMPT.format(
-            name=escape_html(ctx.title), field=escape_html(field)
-        ),
+        prompt,
         keyboards.photo_cancel(note_id, ctx.source),
     )
+
+
+async def _edited_field(repo: NoteRepository, col_index: int) -> str:
+    """Имя редактируемой колонки по её номеру (пусто, если шапку поменяли)."""
+    try:
+        headers = await asyncio.to_thread(repo.headers)
+    except Exception as e:
+        logger.warning("Could not read headers for the edit: %s", e)
+        return ""
+    if not 1 <= col_index <= len(headers):
+        return ""
+    return headers[col_index - 1]
 
 
 @card_router.message(NoteStates.wait_value, F.text)
@@ -200,7 +249,14 @@ async def got_field_value(message: types.Message, state: FSMContext) -> None:
     repo = repo_of(message)
     if repo is None or not note_id or not col_index:
         return
+    field = await _edited_field(repo, col_index)
     value = clean_value(message.text)
+    if _is_source_field(field) and not value:
+        # SOURCE — обязательная колонка: «-» не очищает, а просит имя.
+        await state.set_state(NoteStates.wait_value)
+        await state.update_data(note_id=note_id, col_index=col_index)
+        await status_message(message, buttons.EDIT_SOURCE_EMPTY)
+        return
     user_id = user_id_of(message) or repo._user_id
     async with user_lock(user_id):
         try:

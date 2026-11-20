@@ -128,6 +128,17 @@ EDIT_FIELD_PROMPT = (
     "Send the new value (or <code>-</code> to clear it):"
 )
 
+#: Правка SOURCE: пустым источник быть не может, поэтому вместо «-» — список.
+EDIT_SOURCE_PROMPT = (
+    "✏️ <b>{name}</b>\n\nColumn: <b>{field}</b>\nSend the new source name{sources}"
+)
+#: Блок существующих источников: копируется тапом по <code>.
+EDIT_SOURCE_LIST = "\n\nExisting sources:\n{sources}"
+#: Источник в списке подсказки — уже экранирован вызывающим кодом.
+EDIT_SOURCE_ITEM = "<code>{source}</code>"
+#: Отправили «-» (очистку) в колонку SOURCE.
+EDIT_SOURCE_EMPTY = "⚠️ Source must not be empty. Send a source name:"
+
 PHOTO_PROMPT = (
     "🖼 <b>{name}</b>\n\n"
     "Send a screenshot as a photo — it will be stored in <b>SCREEN</b>:"

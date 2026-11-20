@@ -22,6 +22,7 @@ Telegram-бот заметок: `Python 3.13`, `aiogram 3.x`, `gspread`, `openai
 - **Колонки:** `ID | SOURCE | TITLE | DESCRIPTION | URL | SCREEN | [пользовательские...] | COMMENT`.
 - `ID`, `SOURCE`, `TITLE` (первые 3) и `COMMENT` (последняя) нельзя удалить, переименовать или сдвинуть; `SCREEN` нельзя удалить. Новые колонки — перед `COMMENT`.
 - Лист отсортирован по `SOURCE` ➔ `TITLE` (без учёта регистра). В именах источников двоеточие `:` **разрешено**: запрещено только пустое имя (`add_source`/`rename_source`).
+- Правка `SOURCE` в карточке: `buttons.EDIT_SOURCE_PROMPT` + список существующих источников в `<code>` (`repo.list_sources`), `-` не очищает SOURCE (только `buttons.EDIT_SOURCE_EMPTY`).
 - В `SCREEN` хранится только `file_id` фото; карточка показывает лишь заполненные поля (без пустых, `-`, `—`, `ID`, `SCREEN`).
 - Удаление заметки — через подтверждение (`Cb.NOTE_DEL_ASK` ➔ `Cb.NOTE_DEL`).
 - Кэш: любая запись через бота его инвалидирует; ручные правки видны только после `🔄 Sync` / `/refresh` (`invalidate_cache` + прогрев).
