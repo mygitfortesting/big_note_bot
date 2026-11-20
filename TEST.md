@@ -237,15 +237,17 @@ pytest tests -m "not integration" -q
 
 Клиент модели подменяется двойником (`ai_client` в самом файле), сеть не нужна.
 `ai_client()` собирается подменой `openai.OpenAI`: парсер синхронный, поэтому
-async-клиент не годится.
+async-клиент не годится. Сценарии собираются хелпером `_setup_ai`
+(ключ + репозиторий на `FakeSheet` + открытый экран ✨ AI Note), а строки листа
+ищутся через `_row_with_title` по `TITLE`, а не по позиции после сортировки.
 
 ### Разбор ответа модели
 
 | Тест | Проверяемое правило |
 | --- | --- |
-| `test_extract_json_accepts_wrapped_objects` | Строгий JSON читается и в обёртке ```` ```json ````, и с текстом вокруг объекта. |
-| `test_extract_json_rejects_garbage` | Ответ без JSON-объекта — `AiDraftError`. |
-| `test_page_kind_tells_links_from_text` | `http(s)://` — ссылка (разбираем страницу), остальное — текст. |
+| `test_extract_json_accepts_wrapped_objects` | Строгий JSON читается и в обёртке ```` ```json ````, и с текстом вокруг объекта; результат сравнивается целиком со всеми ключами. |
+| `test_extract_json_rejects_garbage` | Без JSON-объекта — `AiDraftError` (параметризовано: текст вокруг, пустая строка, JSON-массив). |
+| `test_page_kind` | `http(s)://` — ссылка (разбираем страницу), остальное — текст (параметризовано). |
 | `test_link_page_falls_back_to_url` | Ссылка: заголовок и текст страницы идут в модель, при ошибке сети — сама ссылка. |
 | `test_parse_keeps_only_known_columns_and_file_id` | `fields` фильтруются строго по шапке листа, `file_id` фото уходит в черновик (SCREEN). |
 | `test_parse_accepts_legacy_reply_shapes` | Старые ответы модели (`extra_fields` и плоские ключи) по-прежнему разбираются. |
@@ -268,7 +270,7 @@ async-клиент не годится.
 | Тест | Проверяемое правило |
 | --- | --- |
 | `test_ai_note_without_key_explains_setup` | Без `AI_API_KEY` ✨ AI Note показывает понятное сообщение, состояние не ставится. |
-| `test_ai_note_draft_from_text_then_save` | Текст → статус анализа → «✨ AI Draft» с кнопками → «✅ Save» пишет поля и открывает карточку. |
+| `test_ai_note_draft_from_text_then_save` | Текст → статус анализа → «✨ AI Draft» с кнопками → «✅ Save» пишет поля и открывает карточку; строка ищется по `TITLE`. |
 | `test_ai_note_follows_renamed_and_new_columns` | `DESCRIPTION` ➔ `SUMMARY` и новая `SALARY`: попадают в системный промпт, предпросмотр и соответствующие колонки листа. |
 | `test_ai_note_photo_saves_file_id_into_screen` | Фото разбирается, при сохранении `file_id` самого большого размера попадает в SCREEN. |
 | `test_ai_note_link_uses_page_title` | Ссылка: страница загружается через `fetch_page` и попадает в разбор. |
@@ -277,7 +279,7 @@ async-клиент не годится.
 | `test_ai_note_edit_title_before_save` | «✏️ Edit title»: свой заголовок виден в предпросмотре и попадает в таблицу. |
 | `test_ai_note_broken_model_answer_is_reported` | Модель ответила без JSON — пользователь видит AI_FAILED, лист не тронут. |
 | `test_ai_note_photo_on_text_model_hints_vision` | Фото и модель без vision — подсказка указать Vision-модель в `AI_MODEL`, лист не тронут. |
-| `test_vision_error_detection` | `is_vision_error` узнаёт жалобы модели на картинки и не путает их с другими ошибками. |
+| `test_vision_error_detection` | `is_vision_error` узнаёт жалобы модели на картинки и не путает их с другими ошибками (параметризовано, включая `429`). |
 
 ---
 
@@ -295,12 +297,11 @@ async-клиент не годится.
 | `test_cmd_start_ignores_event_without_user` | Сообщение без `from_user` не регистрирует вкладки и не отправляет ничего. |
 | `test_cmd_table_shows_link_for_admin` | Админ получает `buttons.TABLE_LINK_PROMPT` с кнопкой-ссылкой на таблицу (`URL`), состояние сброшено. |
 | `test_cmd_table_denies_regular_user` | Не-админу уходит только `buttons.ADMIN_ONLY`, ссылка на таблицу не показывается. |
-| `test_cmd_table_ignores_event_without_user` | Без `from_user` гвард `_require_admin` возвращает `None` (а не `bool`) и молчит. |
+| `test_cmd_table_ignores_event_without_user` | Без `from_user` «/table» молча завершается: ни отказа, ни ссылки (через публичный `bot.cmd_table`). |
 | `test_cmd_table_reports_answer_error` | Ошибка отправки ссылки уходит в `send_error_message` (общий хелпер `_start_session`). |
 | `test_back_to_main_clears_state_and_opens_menu` | «🏠 Main menu»: кнопка погашена, FSM сброшен, главное меню открыто. |
-| `test_cmd_refresh_clears_cache_and_rereads` | `/refresh` сбрасывает кэш, сразу перечитывает лист (новая строка видна) и показывает `buttons.SYNCED`. |
-| `test_sync_table_uses_event_user_id` | Ключ инвалидации — `user_id` из события (`user_id_of`), а не приватное поле репозитория. |
-| `test_cb_sync_reuses_same_handler` | «🔄 Sync» ушла в тот же обработчик: кэш сброшен, свежая заметка читается, отправлено ровно одно сообщение — `buttons.SYNCED`. |
+| `test_cmd_refresh_clears_cache_and_rereads` | `/refresh` инвалидирует кэш по `user_id` события (`calls == [99]`), сразу перечитывает лист (новая строка видна) и отправляет одно сообщение `buttons.SYNCED`. |
+| `test_cb_sync_invalidates_cache_and_refreshes_notes` | «🔄 Sync» ушла в тот же обработчик: кэш сброшен, свежая заметка читается, отправлено ровно одно сообщение — `buttons.SYNCED`. |
 | `test_sync_reports_read_error` | Ошибка чтения после сброса кэша показывается пользователю, главное меню всё равно открывается. |
 | `test_serve_health_logs_start_failure` | Падение `run_health_server` в фоновом потоке попадает в лог (`logger.exception`), а не исчезает молча. |
 | `test_start_health_server_runs_target_in_thread` | `_start_health_server` запускает именно `_serve_health` в daemon-потоке. |

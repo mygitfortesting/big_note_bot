@@ -206,11 +206,12 @@ def test_cmd_table_denies_regular_user(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_cmd_table_ignores_event_without_user() -> None:
-    """Без from_user гвард молча завершает сценарий (None вместо User)."""
+    """Без from_user «/table» молча завершается: ни отказа, ни ссылки."""
     table_message = message("/table")
     setattr(table_message, "from_user", None)
 
-    assert asyncio.run(bot._require_admin(table_message)) is None
+    asyncio.run(bot.cmd_table(table_message, FakeState()))
+
     assert table_message.sent == []
 
 
@@ -260,15 +261,17 @@ def test_back_to_main_clears_state_and_opens_menu(use_repo: UseRepo) -> None:
 
 
 def _prepare_sync(
-    use_repo: UseRepo, monkeypatch: pytest.MonkeyPatch
+    use_repo: UseRepo, monkeypatch: pytest.MonkeyPatch, user_id: int = 1
 ) -> tuple[Any, list[Any]]:
     """Репозиторий на FakeSheet и журнал вызовов ``invalidate_cache``.
 
     В таблицу добавлена строка «руками» уже после заполнения кеша:
-    без сброса кеша бот её не видит. Шпион не подменяет поведение —
-    после записи в журнал вызывает настоящую ``invalidate_cache``.
+    без сброса кеша бот её не видит. ``user_id`` тот же, что у события: иначе
+    снимок прогревается под одним ключом, а сбрасывается под другим.
+    Шпион не подменяет поведение — после записи в журнал вызывает настоящую
+    ``invalidate_cache``.
     """
-    repo, sheet = repo_for([note_row("1", "Blog", "a")])
+    repo, sheet = repo_for([note_row("1", "Blog", "a")], user_id=user_id)
     use_repo(repo)
     repo.all_values()
     sheet.rows.append(note_row("2", "Blog", "b"))
@@ -286,32 +289,18 @@ def _prepare_sync(
 def test_cmd_refresh_clears_cache_and_rereads(
     use_repo: UseRepo, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """«/refresh»: сбрасывает кеш, сразу перечитывает лист и показывает статус."""
-    repo, calls = _prepare_sync(use_repo, monkeypatch)
-    refresh_message = message("/refresh", user_id=1)
-    state = FakeState()
-
-    asyncio.run(bot.cmd_refresh(refresh_message, state))
-
-    # Ключ кэша — user_id из события, а не внутренние поля репозитория.
-    assert calls == [1]
-    assert [note.note_id for note in repo.list_notes()] == ["1", "2"]
-    assert [sent["text"] for sent in refresh_message.sent] == [buttons.SYNCED]
-
-
-def test_sync_table_uses_event_user_id(
-    use_repo: UseRepo, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Инвалидация идёт по from_user события, даже если репозиторий чужой."""
-    _, calls = _prepare_sync(use_repo, monkeypatch)
+    """«/refresh»: ключ кэша — user_id события, лист перечитан, статус отправлен."""
+    repo, calls = _prepare_sync(use_repo, monkeypatch, user_id=99)
     refresh_message = message("/refresh", user_id=99)
 
     asyncio.run(bot.cmd_refresh(refresh_message, FakeState()))
 
     assert calls == [99]
+    assert [note.note_id for note in repo.list_notes()] == ["1", "2"]
+    assert [sent["text"] for sent in refresh_message.sent] == [buttons.SYNCED]
 
 
-def test_cb_sync_reuses_same_handler(
+def test_cb_sync_invalidates_cache_and_refreshes_notes(
     use_repo: UseRepo, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """«🔄 Sync» делает то же, что /refresh: тот же сброс и свежие данные."""
@@ -332,7 +321,7 @@ def test_sync_reports_read_error(
     use_repo: UseRepo, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Ошибка чтения после сброса кэша показывается, а меню всё равно открыто."""
-    repo, _ = _prepare_sync(use_repo, monkeypatch)
+    repo, _ = _prepare_sync(use_repo, monkeypatch, user_id=1)
 
     def _broken() -> list[list[str]]:
         raise RuntimeError("Simulated Sheets failure")

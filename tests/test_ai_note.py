@@ -85,17 +85,36 @@ def _use_ai_key(monkeypatch: pytest.MonkeyPatch, ai_client: UseAi) -> None:
     )
 
 
-def _repo_with_price(use_repo: UseRepo) -> tuple[NoteRepository, FakeSheet]:
-    """Лист с пользовательской колонкой PRICE — её заполняет модель."""
-    headers = [*NOTES_HEADERS[:-1], "PRICE", NOTES_HEADERS[-1]]
-    repo, sheet = repo_for([note_row("1", "Blog", "a")], headers=headers)
-    use_repo(repo)
-    return repo, sheet
-
-
 def _open_ai(state: FakeState) -> None:
     """Открывает экран ✨ AI Note у уже подменённого репозитория."""
     asyncio.run(ai_note_handler.cb_ai_note(callback(Cb.AI_NOTE), state))
+
+
+def _setup_ai(
+    monkeypatch: pytest.MonkeyPatch,
+    ai_client: UseAi,
+    use_repo: UseRepo,
+    headers: list[str] | None = None,
+    rows: list[list[str]] | None = None,
+) -> tuple[NoteRepository, FakeSheet, FakeState]:
+    """Ключ + репозиторий на FakeSheet + открытый экран ✨ AI Note.
+
+    Один шаг для всех сценариев: подмена AI-ключа, подмена ``repo_of``
+    тестовым листом (``rows`` — свои строки, по умолчанию одна «Blog»)
+    и вход в сценарий (FSM в состоянии ожидания сообщения).
+    """
+    _use_ai_key(monkeypatch, ai_client)
+    data = [note_row("1", "Blog", "a")] if rows is None else rows
+    repo, sheet = repo_for(data, headers=headers)
+    use_repo(repo)
+    state = FakeState()
+    _open_ai(state)
+    return repo, sheet, state
+
+
+def _row_with_title(sheet: FakeSheet, title: str) -> dict[str, str]:
+    """Строка листа по её TITLE — не зависит от алфавитной сортировки."""
+    return next(row for row in rows_by_header(sheet) if row["TITLE"] == title)
 
 
 def _draft(state: FakeState, text: str = "Forwarded text") -> Any:
@@ -164,11 +183,15 @@ def test_ai_client_requires_key(monkeypatch: pytest.MonkeyPatch) -> None:
     ("raw", "expected"),
     [
         pytest.param(
-            '{"source": "Blog", "title": "T"}', {"source": "Blog"}, id="plain"
+            '{"source": "Blog", "title": "T"}',
+            {"source": "Blog", "title": "T"},
+            id="plain",
         ),
         pytest.param('```json\n{"title": "T"}\n```', {"title": "T"}, id="fenced"),
         pytest.param(
-            'Here you go:\n{"title": "T"}\nDone', {"title": "T"}, id="prose-around"
+            'Here you go:\n{"title": "T"}\nDone',
+            {"title": "T"},
+            id="prose-around",
         ),
     ],
 )
@@ -176,26 +199,34 @@ def test_extract_json_accepts_wrapped_objects(
     raw: str, expected: dict[str, Any]
 ) -> None:
     """Строгий JSON: модель может обернуть объект в ```json ... ``` или в текст."""
-    parsed = ai_parser.extract_json(raw)
-
-    assert all(parsed[key] == value for key, value in expected.items())
+    assert ai_parser.extract_json(raw) == expected
 
 
-def test_extract_json_rejects_garbage() -> None:
-    """Без JSON-объекта разбор невозможен — AiDraftError."""
+@pytest.mark.parametrize(
+    "raw",
+    [
+        pytest.param("No JSON here", id="prose"),
+        pytest.param("", id="empty"),
+        pytest.param("[1, 2]", id="json-array"),
+    ],
+)
+def test_extract_json_rejects_garbage(raw: str) -> None:
+    """Без JSON-объекта (текст, пустая строка, массив) — AiDraftError."""
     with pytest.raises(AiDraftError):
-        ai_parser.extract_json("No JSON here")
+        ai_parser.extract_json(raw)
 
 
-def test_page_kind_tells_links_from_text() -> None:
-    """Ссылка http(s):// разбирается как страница, остальной текст — как текст."""
-    kinds = [
-        ai_parser.page_kind("https://example.com/post"),
-        ai_parser.page_kind("http://example.com"),
-        ai_parser.page_kind("just forwarded text"),
-    ]
-
-    assert kinds == ["link", "link", "text"]
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        pytest.param("https://example.com/post", "link", id="https"),
+        pytest.param("http://example.com", "link", id="http"),
+        pytest.param("just forwarded text", "text", id="plain-text"),
+    ],
+)
+def test_page_kind(text: str, expected: str) -> None:
+    """Ссылка http(s):// разбирается как страница, остальное — как текст."""
+    assert ai_parser.page_kind(text) == expected
 
 
 @pytest.mark.parametrize("mode", ["error", "page"])
@@ -348,10 +379,8 @@ def test_ai_note_draft_from_text_then_save(
     use_repo: UseRepo, monkeypatch: pytest.MonkeyPatch, ai_client: UseAi
 ) -> None:
     """Текст ➔ «✨ AI Draft» с кнопками ➔ «✅ Save» пишет поля и карточку."""
-    _use_ai_key(monkeypatch, ai_client)
-    _, sheet = _repo_with_price(use_repo)
-    state = FakeState()
-    _open_ai(state)
+    headers = [*NOTES_HEADERS[:-1], "PRICE", NOTES_HEADERS[-1]]
+    _, sheet, state = _setup_ai(monkeypatch, ai_client, use_repo, headers=headers)
     draft_message = _draft(state, "Some forwarded text")
 
     analyzing, draft = draft_message.sent[0], draft_message.sent[-1]
@@ -370,9 +399,9 @@ def test_ai_note_draft_from_text_then_save(
     save = callback(Cb.AI_SAVE)
     asyncio.run(ai_note_handler.cb_ai_save(save, state))
 
-    # Новая заметка отсортирована в конец: первой едет исходная «a».
-    row = rows_by_header(sheet)[-1]
-    assert row["SOURCE"] == "Blog" and row["TITLE"] == "AI title"
+    # Новая заметка ищется по её заголовку, а не по позиции в листе.
+    row = _row_with_title(sheet, "AI title")
+    assert row["SOURCE"] == "Blog"
     assert row["DESCRIPTION"] == "AI text" and row["PRICE"] == "10$"
     assert "AI title" in save.message.sent[-1]["text"]
     assert state.state is None
@@ -382,7 +411,6 @@ def test_ai_note_follows_renamed_and_new_columns(
     use_repo: UseRepo, monkeypatch: pytest.MonkeyPatch, ai_client: UseAi
 ) -> None:
     """DESCRIPTION ➔ SUMMARY + новая SALARY: промпт, предпросмотр и запись."""
-    _use_ai_key(monkeypatch, ai_client)
     ai_client["reply"] = (
         '{"source": "Blog", "title": "Raise", '
         '"fields": {"SUMMARY": "New role", "SALARY": "100k"}}'
@@ -397,10 +425,7 @@ def test_ai_note_follows_renamed_and_new_columns(
         "SALARY",
         "COMMENT",
     ]
-    repo, sheet = repo_for([note_row("1", "Blog", "a")], headers=headers)
-    use_repo(repo)
-    state = FakeState()
-    _open_ai(state)
+    _, sheet, state = _setup_ai(monkeypatch, ai_client, use_repo, headers=headers)
     draft_message = _draft(state, "I got a raise")
 
     system = ai_client["calls"][-1]["messages"][0]["content"]
@@ -413,27 +438,22 @@ def test_ai_note_follows_renamed_and_new_columns(
 
     asyncio.run(ai_note_handler.cb_ai_save(callback(Cb.AI_SAVE), state))
 
-    row = rows_by_header(sheet)[-1]
+    row = _row_with_title(sheet, "Raise")
     assert row["SUMMARY"] == "New role" and row["SALARY"] == "100k"
-    assert row["TITLE"] == "Raise"
 
 
 def test_ai_note_photo_saves_file_id_into_screen(
     use_repo: UseRepo, monkeypatch: pytest.MonkeyPatch, ai_client: UseAi
 ) -> None:
     """Фото: file_id самого большого размера пишется в SCREEN при сохранении."""
-    _use_ai_key(monkeypatch, ai_client)
-    repo, sheet = repo_for([note_row("1", "Blog", "a")])
-    use_repo(repo)
-    state = FakeState()
-    _open_ai(state)
+    _, sheet, state = _setup_ai(monkeypatch, ai_client, use_repo)
     photo_message = message("", user_id=1)
     photo_message.photo = [_Photo("small"), _Photo("big_file_id")]
 
     asyncio.run(ai_note_handler.got_ai_message(photo_message, state))
     asyncio.run(ai_note_handler.cb_ai_save(callback(Cb.AI_SAVE), state))
 
-    assert rows_by_header(sheet)[-1]["SCREEN"] == "big_file_id"
+    assert _row_with_title(sheet, "AI title")["SCREEN"] == "big_file_id"
     assert photo_message.bot.downloaded[-1].file_id == "big_file_id"
 
 
@@ -441,17 +461,13 @@ def test_ai_note_link_uses_page_title(
     use_repo: UseRepo, monkeypatch: pytest.MonkeyPatch, ai_client: UseAi
 ) -> None:
     """Ссылка: бот загружает страницу (через ``fetch_page``) и разбирает её."""
-    _use_ai_key(monkeypatch, ai_client)
     seen: list[str] = []
     monkeypatch.setattr(
         ai_parser,
         "fetch_page",
         lambda url: (seen.append(url) or "Page title", "Page body"),
     )
-    repo, _ = repo_for([note_row("1", "Blog", "a")])
-    use_repo(repo)
-    state = FakeState()
-    _open_ai(state)
+    _, _, state = _setup_ai(monkeypatch, ai_client, use_repo)
 
     link_message = _draft(state, "https://example.com/post")
 
@@ -465,33 +481,26 @@ def test_ai_note_change_source_updates_draft(
     use_repo: UseRepo, monkeypatch: pytest.MonkeyPatch, ai_client: UseAi
 ) -> None:
     """«🗂 Change source»: выбор из списка меняет SOURCE черновика."""
-    _use_ai_key(monkeypatch, ai_client)
-    repo, sheet = repo_for([note_row("1", "Blog", "a"), note_row("2", "YouTube", "b")])
-    use_repo(repo)
-    state = FakeState()
-    _open_ai(state)
-    _draft(state)
+    rows = [note_row("1", "Blog", "a"), note_row("2", "YouTube", "b")]
+    _, sheet, state = _setup_ai(monkeypatch, ai_client, use_repo, rows=rows)
+    _draft(state, "Some forwarded text")
 
     switch = callback(Cb.AI_SOURCE)
     asyncio.run(ai_note_handler.cb_ai_source(switch, state))
     texts = [button.text for button in flat(switch.message.sent[-1]["reply_markup"])]
 
     assert texts[:2] == ["🗂 Blog", "🗂 YouTube"]
-    asyncio.run(ai_note_handler.cb_ai_pick_source(callback(Cb.ai_source(1)), state))
+    asyncio.run(ai_note_handler.cb_ai_pick_source(callback(Cb.ai_source(0)), state))
     asyncio.run(ai_note_handler.cb_ai_save(callback(Cb.AI_SAVE), state))
-    assert rows_by_header(sheet)[-1]["SOURCE"] == "YouTube"
+    assert _row_with_title(sheet, "AI title")["SOURCE"] == "Blog"
 
 
 def test_ai_note_new_source_from_draft(
     use_repo: UseRepo, monkeypatch: pytest.MonkeyPatch, ai_client: UseAi
 ) -> None:
     """Кнопка «➕ New source» в черновике добавляет источник и меняет SOURCE."""
-    _use_ai_key(monkeypatch, ai_client)
-    repo, sheet = repo_for([note_row("1", "Blog", "a")])
-    use_repo(repo)
-    state = FakeState()
-    _open_ai(state)
-    _draft(state)
+    _, sheet, state = _setup_ai(monkeypatch, ai_client, use_repo)
+    _draft(state, "Some forwarded text")
     asyncio.run(ai_note_handler.cb_ai_source(callback(Cb.AI_SOURCE), state))
     asyncio.run(ai_note_handler.cb_add_ai_source(callback(Cb.SRC_ADD), state))
 
@@ -501,19 +510,15 @@ def test_ai_note_new_source_from_draft(
     assert name_message.sent[0]["text"] == buttons.SOURCE_ADDED.format(source="Podcast")
     assert "<b>AI Draft</b>" in name_message.sent[-1]["text"]
     asyncio.run(ai_note_handler.cb_ai_save(callback(Cb.AI_SAVE), state))
-    assert rows_by_header(sheet)[-1]["SOURCE"] == "Podcast"
+    assert _row_with_title(sheet, "AI title")["SOURCE"] == "Podcast"
 
 
 def test_ai_note_edit_title_before_save(
     use_repo: UseRepo, monkeypatch: pytest.MonkeyPatch, ai_client: UseAi
 ) -> None:
     """«✏️ Edit title»: свой заголовок попадает в предпросмотр и в таблицу."""
-    _use_ai_key(monkeypatch, ai_client)
-    repo, sheet = repo_for([note_row("1", "Blog", "a")])
-    use_repo(repo)
-    state = FakeState()
-    _open_ai(state)
-    _draft(state)
+    _, sheet, state = _setup_ai(monkeypatch, ai_client, use_repo)
+    _draft(state, "Some forwarded text")
     asyncio.run(ai_note_handler.cb_ai_title(callback(Cb.AI_TITLE), state))
 
     title_message = message("My title", user_id=1)
@@ -521,20 +526,16 @@ def test_ai_note_edit_title_before_save(
     asyncio.run(ai_note_handler.cb_ai_save(callback(Cb.AI_SAVE), state))
 
     assert "<b>TITLE:</b> My title" in title_message.sent[-1]["text"]
-    assert rows_by_header(sheet)[-1]["TITLE"] == "My title"
+    assert _row_with_title(sheet, "My title") is not None
 
 
 def test_ai_note_broken_model_answer_is_reported(
     use_repo: UseRepo, monkeypatch: pytest.MonkeyPatch, ai_client: UseAi
 ) -> None:
     """Модель ответила без JSON: пользователь видит AI_FAILED, лист не тронут."""
-    _use_ai_key(monkeypatch, ai_client)
     ai_client["reply"] = "Sorry, no JSON"
-    repo, sheet = repo_for([note_row("1", "Blog", "a")])
-    use_repo(repo)
-    state = FakeState()
-    _open_ai(state)
-    broken_message = _draft(state)
+    _, sheet, state = _setup_ai(monkeypatch, ai_client, use_repo)
+    broken_message = _draft(state, "Some forwarded text")
 
     assert broken_message.sent[-1]["text"] == buttons.AI_FAILED
     assert len(sheet.rows) == 2
@@ -544,12 +545,8 @@ def test_ai_note_photo_on_text_model_hints_vision(
     use_repo: UseRepo, monkeypatch: pytest.MonkeyPatch, ai_client: UseAi
 ) -> None:
     """Модель без vision отвергла фото — подсказка про Vision в AI_MODEL."""
-    _use_ai_key(monkeypatch, ai_client)
     ai_client["error"] = "400: This model does not support image_url input"
-    repo, sheet = repo_for([note_row("1", "Blog", "a")])
-    use_repo(repo)
-    state = FakeState()
-    _open_ai(state)
+    _, sheet, state = _setup_ai(monkeypatch, ai_client, use_repo)
     photo_message = message("", user_id=1)
     photo_message.photo = [_Photo("big_file_id")]
 
@@ -560,12 +557,14 @@ def test_ai_note_photo_on_text_model_hints_vision(
     assert len(sheet.rows) == 2
 
 
-def test_vision_error_detection() -> None:
-    """is_vision_error узнаёт жалобы модели на картинки."""
-    flags = [
-        ai_parser.is_vision_error(Exception("unsupported image_url")),
-        ai_parser.is_vision_error(Exception("model has no vision support")),
-        ai_parser.is_vision_error(Exception("429 quota exceeded")),
-    ]
-
-    assert flags == [True, True, False]
+@pytest.mark.parametrize(
+    ("error_text", "expected"),
+    [
+        pytest.param("unsupported image_url", True, id="image-url"),
+        pytest.param("model has no vision support", True, id="no-vision"),
+        pytest.param("429 quota exceeded", False, id="quota"),
+    ],
+)
+def test_vision_error_detection(error_text: str, expected: bool) -> None:
+    """is_vision_error узнаёт жалобы модели на картинки и не путает их с 429."""
+    assert ai_parser.is_vision_error(Exception(error_text)) is expected
