@@ -281,13 +281,28 @@ async-клиент не годится.
 
 ---
 
-## `tests/test_bot.py` — сборка приложения, меню, справка и синхронизация
+## `tests/test_bot.py` — сборка приложения, команды, меню и синхронизация
 
 | Тест | Проверяемое правило |
 | --- | --- |
 | `test_register_routers_wiring` | `register_routers()` вызывается без ошибок: каждый роутер подключён ровно один раз (в т.ч. `ai_router` не дублируется внутри `notes_handler.router`), `ai_router` стоит перед роутером заметок (AiStates — раньше поиска), а повторный вызов бросает `RuntimeError` и не раздувает список подроутеров. |
 | `test_main_menu_has_sync_button` | В главном меню есть «🔄 Sync» с `Cb.SYNC`, рядом с «📊 Columns». |
 | `test_help_text_sections` | `/help` разбит на три раздела (создание/просмотр/таблица) и упоминает `✨ AI Note`, `🗂 Sources`, `📊 Columns`, `🔄 Sync`, `/refresh`, `/table`. |
-| `test_cmd_refresh_clears_cache_and_rereads` | `/refresh` сбрасывает кэш, сразу перечитывает лист (новая строка видна) и показывает `buttons.SYNCED` + главное меню. |
-| `test_cb_sync_reuses_same_handler` | «🔄 Sync» ушла в тот же обработчик: кэш сброшен, свежая заметка читается, статус и меню отправлены. |
+| `test_cmd_help_answers_html_with_back_button` | «/help» сбрасывает сценарий и отвечает `buttons.HELP_TEXT` одной кнопкой «🏠 Main menu» (`Cb.TO_MAIN`). |
+| `test_cmd_help_reports_answer_error` | Сбой отправки справки уходит в `send_error_message`, а не остаётся только в логе aiogram. |
+| `test_cmd_start_registers_sheets_and_opens_menu` | `/start` вызывает `setup_user_sheets` с `from_user` события, сбрасывает FSM и открывает главное меню. |
+| `test_cmd_start_reports_setup_error` | Сбой регистрации вкладок показывается через `send_error_message`; главное меню при этом не отправляется. |
+| `test_cmd_start_ignores_event_without_user` | Сообщение без `from_user` не регистрирует вкладки и не отправляет ничего. |
+| `test_cmd_table_shows_link_for_admin` | Админ получает `buttons.TABLE_LINK_PROMPT` с кнопкой-ссылкой на таблицу (`URL`), состояние сброшено. |
+| `test_cmd_table_denies_regular_user` | Не-админу уходит только `buttons.ADMIN_ONLY`, ссылка на таблицу не показывается. |
+| `test_cmd_table_ignores_event_without_user` | Без `from_user` гвард `_require_admin` возвращает `None` (а не `bool`) и молчит. |
+| `test_cmd_table_reports_answer_error` | Ошибка отправки ссылки уходит в `send_error_message` (общий хелпер `_start_session`). |
+| `test_back_to_main_clears_state_and_opens_menu` | «🏠 Main menu»: кнопка погашена, FSM сброшен, главное меню открыто. |
+| `test_cmd_refresh_clears_cache_and_rereads` | `/refresh` сбрасывает кэш, сразу перечитывает лист (новая строка видна) и показывает `buttons.SYNCED`. |
+| `test_sync_table_uses_event_user_id` | Ключ инвалидации — `user_id` из события (`user_id_of`), а не приватное поле репозитория. |
+| `test_cb_sync_reuses_same_handler` | «🔄 Sync» ушла в тот же обработчик: кэш сброшен, свежая заметка читается, отправлено ровно одно сообщение — `buttons.SYNCED`. |
 | `test_sync_reports_read_error` | Ошибка чтения после сброса кэша показывается пользователю, главное меню всё равно открывается. |
+| `test_serve_health_logs_start_failure` | Падение `run_health_server` в фоновом потоке попадает в лог (`logger.exception`), а не исчезает молча. |
+| `test_start_health_server_runs_target_in_thread` | `_start_health_server` запускает именно `_serve_health` в daemon-потоке. |
+| `test_setup_bot_fails_without_token` | Невалидный `BOT_TOKEN` останавливает запуск до старта polling (`RuntimeError` пробрасывается). |
+| `test_main_wires_startup_steps` | `main` настраивает логирование и выполняет шаги `health` ➔ `setup` ➔ `polling` именно в этом порядке. |

@@ -31,6 +31,7 @@ from services.telegram_io import (
     require_from_user,
     send_error_message,
     show_main_menu,
+    user_id_of,
 )
 
 logger = logging.getLogger(__name__)
@@ -38,6 +39,26 @@ logger = logging.getLogger(__name__)
 router = Router(name="common")
 
 # --- Общие команды ---
+
+
+async def _start_session(
+    message: types.Message,
+    state: FSMContext,
+    text: str,
+    markup: types.InlineKeyboardMarkup,
+) -> None:
+    """
+    Общий шаг команд: сброс сценария + ответ в HTML, ошибки — пользователю.
+
+    Используется ``/start`` и ``/table``: оба начинают с чистого состояния
+    и отвечают размеченным сообщением, а сбой отправки не должен оставлять
+    бота молчащим.
+    """
+    await state.clear()
+    try:
+        await message.answer(text, reply_markup=markup, parse_mode="HTML")
+    except Exception as e:
+        await send_error_message(message, e)
 
 
 @router.message(CommandStart())
@@ -58,59 +79,67 @@ async def cmd_start(message: types.Message, state: FSMContext) -> None:
     await state.clear()
     try:
         await asyncio.to_thread(setup_user_sheets, from_user)
-        await notes_handler.send_main_menu(message)
     except Exception as e:
         await send_error_message(message, e)
+        return
+    await notes_handler.send_main_menu(message)
 
 
-async def _require_admin(message: types.Message) -> bool:
-    """Гвард доступа: from_user + админ; не-админу уходит ADMIN_ONLY."""
+async def _require_admin(message: types.Message) -> types.User | None:
+    """Гвард доступа: пользователь события, если он админ, иначе None.
+
+    Не-админу сразу уходит ``ADMIN_ONLY``; ``None`` означает «сценарий
+    не продолжается», а при успехе возвращается типизированный ``from_user``,
+    чтобы хендлеру не приходилось искать его повторно.
+    """
     from_user = require_from_user(message)
     if from_user is None:
-        return False
+        return None
     if not is_admin(from_user.id):
         await message.answer(buttons.ADMIN_ONLY)
-        return False
-    return True
+        return None
+    return from_user
 
 
 @router.message(Command(Cmd.HELP))
 async def cmd_help(message: types.Message, state: FSMContext) -> None:
     """Справка по боту — доступна всем, рядом с /start в меню команд."""
-    await state.clear()
-    await message.answer(
-        buttons.HELP_TEXT,
-        reply_markup=keyboards.back_to_main(),
-        parse_mode="HTML",
-    )
+    await _start_session(message, state, buttons.HELP_TEXT, keyboards.back_to_main())
 
 
 @router.message(Command(Cmd.TABLE))
 async def cmd_table(message: types.Message, state: FSMContext) -> None:
     """Ссылка на Google-таблицу — только для админа."""
-    if not await _require_admin(message):
+    from_user = await _require_admin(message)
+    if from_user is None:
         return
-    await state.clear()
-    try:
-        await message.answer(
-            buttons.TABLE_LINK_PROMPT,
-            reply_markup=keyboards.table_link(get_table_url()),
-            parse_mode="HTML",
-        )
-    except Exception as e:
-        await send_error_message(message, e)
+    await _start_session(
+        message,
+        state,
+        buttons.TABLE_LINK_PROMPT,
+        keyboards.table_link(get_table_url()),
+    )
 
 
 # /add_note и /add_source обрабатываются в notes_handler: сценарии полностью
 # описаны там, а bot.py оставляет за собой только общие команды.
 
 
+async def _ack_and_hide(callback: types.CallbackQuery) -> None:
+    """Гасит «часики» на кнопке и убирает сообщение, под которым её нажали.
+
+    Обе утилиты сами глушат ошибки Telegram (протухший callback, >48 часов),
+    поэтому сценарий продолжается даже на старом сообщении.
+    """
+    await ack_callback(callback)
+    await hide_callback_message(callback)
+
+
 @router.callback_query(F.data == Cb.TO_MAIN)
 async def back_to_main(callback: types.CallbackQuery, state: FSMContext) -> None:
     """Возврат в главное меню из любого раздела."""
-    await ack_callback(callback)
+    await _ack_and_hide(callback)
     await state.clear()
-    await hide_callback_message(callback)
     await notes_handler.send_main_menu(callback)
 
 
@@ -132,7 +161,9 @@ async def sync_table(
     repo = notes_handler.repo_of(event)
     if repo is None:
         return
-    user_id = getattr(repo, "_user_id", None)
+    # user_id — из события Telegram, а не из внутренних полей репозитория:
+    # ключ кэша должен совпадать с тем, что использует NoteRepository.
+    user_id = user_id_of(event)
     await asyncio.to_thread(invalidate_cache, user_id)
     try:
         # Прогрев: чтение кладёт свежий снимок обратно в кэш.
@@ -142,7 +173,6 @@ async def sync_table(
         await notes_handler.send_main_menu(event)
         return
     await show_main_menu(event, buttons.SYNCED)
-    await notes_handler.send_main_menu(event)
 
 
 @router.message(Command(Cmd.REFRESH))
@@ -154,8 +184,7 @@ async def cmd_refresh(message: types.Message, state: FSMContext) -> None:
 @router.callback_query(F.data == Cb.SYNC)
 async def cb_sync(callback: types.CallbackQuery, state: FSMContext) -> None:
     """«🔄 Sync» в главном меню: то же, что /refresh."""
-    await ack_callback(callback)
-    await hide_callback_message(callback)
+    await _ack_and_hide(callback)
     await sync_table(callback, state)
 
 
@@ -191,24 +220,50 @@ async def set_bot_commands() -> None:
     )
 
 
-async def main() -> None:
-    """Запуск: health-check, роутеры, команды в меню и polling."""
-    logging.basicConfig(level=logging.INFO)  # до первого обращения к боту
+def _serve_health() -> None:
+    """Поток health-check: ошибка старта пишется в лог, а не умирает молча.
+
+    Поток daemon: непойманное исключение убило бы его без единой строки
+    в логе, и Render посчитал бы сервис упавшим без причины.
+    """
+    try:
+        run_health_server()
+    except Exception:
+        logger.exception("Fatal: health-check server failed to start")
+
+
+def _start_health_server() -> None:
+    """Поднимает health-check Render в фоновом daemon-потоке."""
+    threading.Thread(target=_serve_health, daemon=True).start()
+
+
+async def _setup_bot() -> None:
+    """Проверка токена, сборка роутеров и регистрация слэш-команд в меню."""
     try:
         get_bot()  # ранняя проверка BOT_TOKEN: падаем до старта polling
     except Exception as e:
         logger.error("Fatal: BOT_TOKEN is invalid or missing — bot not started: %s", e)
         raise
-    threading.Thread(target=run_health_server, daemon=True).start()
-
     register_routers()
     await set_bot_commands()
     logger.info("Bot Administrator successfully started!")
+
+
+async def _run_polling() -> None:
+    """Блокирующий polling Telegram: ошибка логируется и пробрасывается."""
     try:
         await dp.start_polling(get_bot())
     except Exception as e:
         logger.error("Fatal: polling stopped with an error: %s", e)
         raise
+
+
+async def main() -> None:
+    """Запуск: health-check, роутеры, команды в меню и polling."""
+    logging.basicConfig(level=logging.INFO)  # до первого обращения к боту
+    _start_health_server()
+    await _setup_bot()
+    await _run_polling()
 
 
 if __name__ == "__main__":

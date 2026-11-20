@@ -92,7 +92,7 @@ def test_add_note_without_sources_asks_for_new_source(use_repo: UseRepo) -> None
 
 
 def test_add_source_lists_existing_sources_and_cancel(use_repo: UseRepo) -> None:
-    """«➕ Add source» и кнопка «➕ New source»: список + «✖️ Cancel»."""
+    """«🆕 Add source» и кнопка «➕ New source»: список + «✖️ Cancel»."""
     repo, _ = repo_for(
         [
             note_row("1", "Telegram", "a"),

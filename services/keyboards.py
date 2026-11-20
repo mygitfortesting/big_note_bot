@@ -306,7 +306,7 @@ SOURCE_NUMBER_ROW = 8
 
 def sources_manage(count: int) -> InlineKeyboardMarkup:
     """
-    «🗂 Sources»: кнопки-номера источников + «➕ Add source» + меню.
+    «🗂 Sources»: кнопки-номера источников + «🆕 Add source» + меню.
 
     В ``callback_data`` уходит только номер: имя источника может не влезть
     в 64 байта callback_data, а сам список лежит в FSMContext.

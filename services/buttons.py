@@ -3,7 +3,7 @@
 # --- Команды, зарегистрированные в Telegram (set_my_commands) ---
 START = "📱 Open the main menu!"
 HELP = "❓ Help"
-ADD_SOURCE = "➕ Add source"
+ADD_SOURCE = "🆕 Add source"
 ADD_NOTE = "➕ Add note"
 OPEN_TABLE = "🪎 Open Table"
 
@@ -195,7 +195,7 @@ HELP_TEXT = (
     f"<b>{AI_NOTE}</b> — send a screenshot, a link or forwarded text: "
     "the bot fills a draft, then <b>✅ Save</b>, change the source or edit "
     "the title.\n"
-    "<b>➕ Add source</b> — create a source in advance: it appears with "
+    "<b>🆕 Add source</b> — create a source in advance: it appears with "
     "0 notes and is filled by its first note.\n\n"
     "<b>🗂 Browsing &amp; Editing</b>\n"
     "<b>🗂 Sources</b> — numbered source list: open notes by number, "
