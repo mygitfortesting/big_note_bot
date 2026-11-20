@@ -147,7 +147,7 @@ async def sync_table(
 
 @router.message(Command(Cmd.REFRESH))
 async def cmd_refresh(message: types.Message, state: FSMContext) -> None:
-    """ "/refresh": сбросить кэш и перечитать таблицу."""
+    """«/refresh»: сбросить кэш и перечитать таблицу."""
     await sync_table(message, state)
 
 
@@ -186,7 +186,7 @@ async def set_bot_commands() -> None:
             types.BotCommand(command=Cmd.ADD_NOTE, description=buttons.ADD_NOTE),
             types.BotCommand(command=Cmd.HELP, description=buttons.HELP),
             types.BotCommand(command=Cmd.TABLE, description=buttons.OPEN_TABLE),
-            types.BotCommand(command=Cmd.REFRESH, description=buttons.REFRESH),
+            types.BotCommand(command=Cmd.REFRESH, description=buttons.SYNC),
         ]
     )
 

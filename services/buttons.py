@@ -6,7 +6,6 @@ HELP = "❓ Help"
 ADD_SOURCE = "➕ Add source"
 ADD_NOTE = "➕ Add note"
 OPEN_TABLE = "🪎 Open Table"
-REFRESH = "🔄 Sync"
 
 # --- Кнопки главного меню ---
 COLUMNS = "📊 Columns"
