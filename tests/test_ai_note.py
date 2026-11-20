@@ -7,6 +7,7 @@ from collections.abc import Callable
 from types import SimpleNamespace
 from typing import Any
 
+import openai
 import pytest
 
 from config import (
@@ -18,7 +19,7 @@ from config import (
     ai_model,
 )
 from handlers import ai_note_handler
-from services import ai_parser, buttons
+from services import ai_parser, buttons, keyboards
 from services.ai_parser import (
     AI_PROMPT_HEADER,
     AiDraftError,
@@ -128,8 +129,6 @@ def test_without_key_main_menu_still_works(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Главное меню содержит ✨ AI Note, пустой ключ его не ломает."""
-    from services import keyboards
-
     texts = [button.text for button in flat(keyboards.main_menu())]
 
     assert buttons.AI_NOTE in texts
@@ -158,8 +157,6 @@ def test_ai_client_returns_sync_client(monkeypatch: pytest.MonkeyPatch) -> None:
 
         def __init__(self, **kwargs: Any) -> None:
             created.update(kwargs)
-
-    import openai
 
     monkeypatch.setattr(openai, "OpenAI", _SyncClient)
     monkeypatch.setattr(ai_note_handler, "ai_api_key", lambda: "test-key")
@@ -250,35 +247,35 @@ def test_link_page_falls_back_to_url(
     assert draft.title == "AI title"
 
 
-def test_blocked_link_falls_back_to_base_draft(
-    monkeypatch: pytest.MonkeyPatch, ai_client: UseAi
+@pytest.mark.parametrize(
+    ("columns", "file_id", "expected_fields"),
+    [
+        pytest.param(
+            ["URL", "PRICE"],
+            "",
+            {"URL": "https://lnkd.in/eAbCdEf"},
+            id="url-column",
+        ),
+        pytest.param(["PRICE"], "photo-1", {}, id="no-url-column-photo"),
+    ],
+)
+def test_link_without_json_falls_back_to_base_draft(
+    monkeypatch: pytest.MonkeyPatch,
+    ai_client: UseAi,
+    columns: list[str],
+    file_id: str,
+    expected_fields: dict[str, str],
 ) -> None:
-    """lnkd.in без текста страницы + ответ без JSON: черновик ссылки, не ошибка."""
+    """Ответ модели без JSON на закрытую ссылку: черновик ссылки, не ошибка."""
     monkeypatch.setattr(ai_parser, "fetch_page", lambda url: ("", ""))
-    ai_client["reply"] = "Sorry, I cannot open this LinkedIn link."
+    ai_client["reply"] = "Sorry, I cannot open this link."
 
     draft = AiNoteParser(_client(ai_client), "test-model").parse(
-        "https://lnkd.in/eAbCdEf", sources=["Blog"], columns=["URL", "PRICE"]
+        "https://lnkd.in/eAbCdEf", file_id=file_id, columns=columns
     )
 
     assert draft.title == "https://lnkd.in/eAbCdEf"
-    assert draft.fields == {"URL": "https://lnkd.in/eAbCdEf"}
-    assert draft.source == "" and draft.screen == ""
-
-
-def test_link_without_json_keeps_photo_file_id(
-    monkeypatch: pytest.MonkeyPatch, ai_client: UseAi
-) -> None:
-    """Базовый черновик ссылки не теряет file_id фото и не знает колонки URL."""
-    monkeypatch.setattr(ai_parser, "fetch_page", lambda url: ("", ""))
-    ai_client["reply"] = "I do not have internet access."
-
-    draft = AiNoteParser(_client(ai_client), "test-model").parse(
-        "https://lnkd.in/eAbCdEf", file_id="photo-1", columns=["PRICE"]
-    )
-
-    assert draft.title == "https://lnkd.in/eAbCdEf"
-    assert draft.fields == {} and draft.screen == "photo-1"
+    assert draft.fields == expected_fields and draft.screen == file_id
 
 
 def test_text_without_json_still_raises_with_preview(ai_client: UseAi) -> None:

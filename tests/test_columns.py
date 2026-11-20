@@ -8,13 +8,13 @@ from collections.abc import Callable
 import pytest
 
 from handlers import columns_handler
-from services import buttons
+from services import buttons, keyboards
 from services.callback import Cb
 from services.sheets import ColumnService
 from services.text_utils import WIDTH_SPACER
 from tests.conftest import callback, flat, message
 from tests.factories import columns_for
-from tests.fakes import FakeSheet, FakeState, FakeUser
+from tests.fakes import FakeSheet, FakeState
 
 #: Фикстура ``use_service`` из ``tests.conftest``.
 UseService = Callable[[ColumnService], ColumnService]
@@ -171,7 +171,6 @@ def test_columns_menu_add_column_prompt(use_service: UseService) -> None:
     service, _ = columns_for()
     use_service(service)
     add_message = message("", user_id=1)
-    add_message.from_user = FakeUser(1)
     state = FakeState()
 
     asyncio.run(columns_handler.cb_column_add(add_message, state))
@@ -249,8 +248,6 @@ def test_delete_protected_column_alert_plain_text(
 
 def test_rows_per_row_validation() -> None:
     """keyboards._rows выбрасывает ValueError при per_row < 1."""
-    from services import keyboards
-
     with pytest.raises(ValueError, match="per_row must be at least 1"):
         keyboards._rows([], per_row=0)
     with pytest.raises(ValueError, match="per_row must be at least 1"):

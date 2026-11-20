@@ -48,7 +48,6 @@ def test_new_source_is_added_as_blank_source(use_repo: UseRepo) -> None:
     assert any("Source added" in item["text"] for item in source_message.sent)
     # Шапка + строка-болванка: только SOURCE, без ID и TITLE.
     assert len(sheet.rows) == 2
-    # Шапка + строка-болванка: только SOURCE, без ID и TITLE.
     assert sheet.rows[1][:3] == ["", "Instagram", ""]
     assert repo.list_sources_with_counts() == [("Instagram", 0)]
     assert repo.list_notes() == []

@@ -68,7 +68,8 @@ pytest tests -m "not integration" -q
 | --- | --- |
 | `test_add_source_creates_blank_row_without_id` | Источник добавляется строкой с одним SOURCE и 0 заметок. |
 | `test_add_source_is_case_insensitive_and_idempotent` | Повторное добавление в другом регистре ничего не меняет. |
-| `test_source_name_validation_rejects_empty_and_colon` | Пустое имя источника или `:` — `ValueError` при добавлении и переименовании. |
+| `test_source_name_validation_rejects_empty_only` | Пустое имя — `ValueError`, а `:` в имени источника разрешён (`Resepies: Breakfast` создаётся и попадает в список). |
+| `test_rename_source_keeps_colon_in_name` | Переименование в имя с `:` меняет все строки, а `list_by_source` находит по нему заметки. |
 | `test_create_fills_blank_source_row` | Первая заметка заполняет болванку вместо дубликата. |
 | `test_blank_source_is_not_listed_as_note` | Болванка не считается заметкой в списке источника. |
 | `test_rename_and_delete_source_include_blank_rows` | Болванка переименовывается и удаляется вместе с источником. |
@@ -154,7 +155,8 @@ pytest tests -m "not integration" -q
 | `test_with_min_width` | Распорка добавляется только короткому тексту (по видимому тексту без тегов), через один `\n` и без `\n\n`; повторная не добавляется, длинному — тоже. |
 | `test_note_delete_ask_shows_confirmation` | Нажатие «Delete» в карточке открывает экран подтверждения. |
 | `test_note_delete_executes_under_user_lock` | Подтверждение удаления удаляет строку заметки под `user_lock`. |
-| `test_source_name_with_colon_rejected_in_handlers` | Хендлеры отклоняют имя источника с символом `:`. |
+| `test_source_name_with_colon_accepted_in_handlers` | Хендлеры принимают имя источника с `:` и при создании, и при переименовании. |
+| `test_parse_note_keeps_colons_in_source` | `Cb.parse_note` для `note_view:<id>:<source>` сохраняет двоеточия в имени (`Resepies: Breakfast`, `Blog: A: B`, `Time 12:30`). |
 | `test_plain_text_cleans_tags_and_unescapes_entities` | `plain_text` удаляет HTML-теги и декодирует HTML-сущности. |
 | `test_is_quota_error_logic` | `_is_quota_error` определяет ошибку 429 по APIError или тексту. |
 
@@ -250,7 +252,8 @@ async-клиент не годится. Сценарии собираются х
 | --- | --- |
 | `test_extract_json_round_trip` | Строгий JSON читается и в обёртке ```` ```json ````, и с текстом вокруг объекта (сравнение целиком), а текст без объекта, пустая строка и JSON-массив — `AiDraftError` (один параметризованный тест). |
 | `test_vision_error_is_reported_only_for_photo` | Жалоба модели на картинку — `AiVisionError` только когда присланно фото; без фото — исходная ошибка провайдера. |
-| `test_link_page_falls_back_to_url` | Ссылка: заголовок и текст страницы идут в модель, при ошибке сети — сама ссылка. |
+| `test_link_without_json_falls_back_to_base_draft` | Закрытая ссылка (`lnkd.in`) и ответ без JSON: возвращается черновик ссылки (`title` = URL), `URL` заполняется при наличии колонки, `file_id` фото не теряется. |
+| `test_link_page_falls_back_to_url` | Ссылка: заголовок и текст страницы уходят в модель, при ошибке сети — только URL; заголовок берётся из валидного ответа модели. |
 | `test_parse_keeps_only_known_columns_and_file_id` | `fields` фильтруются строго по шапке листа, `file_id` фото уходит в черновик (SCREEN). |
 | `test_parse_accepts_legacy_reply_shapes` | Старые ответы модели (`extra_fields` и плоские ключи) по-прежнему разбираются. |
 | `test_parse_sends_photo_as_image_url` | Фото передаётся как `image_url` (`data:image/jpeg;base64,...`). |
