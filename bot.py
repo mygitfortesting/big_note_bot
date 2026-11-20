@@ -20,7 +20,7 @@ from config import (
     is_admin,
     setup_user_sheets,
 )
-from handlers import columns_handler, notes_handler
+from handlers import ai_note_handler, columns_handler, notes_handler
 from services import buttons, keyboards
 from services.callback import Cb, Cmd
 from services.healthcheck import run_health_server
@@ -116,10 +116,11 @@ async def back_to_main(callback: types.CallbackQuery, state: FSMContext) -> None
 
 
 def register_routers() -> None:
-    """Порядок важен: общие команды -> заметки -> колонки."""
+    """Порядок важен: общие команды -> заметки -> ✨ AI Note -> колонки."""
     dp.include_routers(
         router,
         notes_handler.router,
+        ai_note_handler.ai_router,
         columns_handler.router,
     )
 

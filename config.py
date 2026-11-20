@@ -55,6 +55,34 @@ BOT_TOKEN_ENV = "BOT_TOKEN"
 
 ADMIN_ID = int(os.getenv("ADMIN_ID", "0"))
 
+# --- AI-разбор заметок (✨ AI Note) ---
+
+#: Ключ AI-провайдера; без него бот работает как обычно, а ✨ AI Note
+#: отвечает, что AI-ключ не настроен.
+AI_API_KEY_ENV = "AI_API_KEY"
+#: Эндпоинт AI-провайдера (OpenRouter по умолчанию).
+AI_BASE_URL_ENV = "AI_BASE_URL"
+#: Модель по умолчанию для разбора заметок.
+DEFAULT_AI_MODEL = "openrouter/free"
+#: Базовый URL по умолчанию: без своего прокси ходим в OpenRouter.
+DEFAULT_AI_BASE_URL = "https://openrouter.ai"
+
+
+def ai_api_key() -> str:
+    """Ключ AI-провайдера из окружения (пусто — разбор недоступен)."""
+    return (os.getenv(AI_API_KEY_ENV) or "").strip()
+
+
+def ai_base_url() -> str:
+    """Базовый URL API модели (AI_BASE_URL или DEFAULT_AI_BASE_URL)."""
+    return (os.getenv(AI_BASE_URL_ENV) or "").strip() or DEFAULT_AI_BASE_URL
+
+
+def ai_model() -> str:
+    """Имя модели для разбора (AI_MODEL или DEFAULT_AI_MODEL)."""
+    return (os.getenv("AI_MODEL") or "").strip() or DEFAULT_AI_MODEL
+
+
 # --- aiogram ---
 
 _bot: Bot | None = None
@@ -247,12 +275,17 @@ def _register_user(from_user: Any, title: str) -> None:
 
 
 __all__ = [
+    "DEFAULT_AI_BASE_URL",
+    "DEFAULT_AI_MODEL",
     "MAX_COLUMNS",
     "MY_NOTES_SHEET",
     "NOTES_HEADERS",
     "NOTES_SHEET_TEMPLATE",
     "USERS_HEADERS",
     "USERS_SHEET",
+    "ai_api_key",
+    "ai_base_url",
+    "ai_model",
     "dp",
     "get_bot",
     "get_notes_sheet",

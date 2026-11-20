@@ -85,6 +85,34 @@ def columns_button() -> InlineKeyboardButton:
     return _button(buttons.COLUMNS, Cb.MENU_COLUMNS)
 
 
+# --- ✨ AI Note ---
+
+
+def ai_note_button() -> InlineKeyboardButton:
+    """«✨ AI Note» — черновик из скриншота, ссылки или текста."""
+    return _button(buttons.AI_NOTE, Cb.AI_NOTE)
+
+
+def ai_save_button() -> InlineKeyboardButton:
+    """«✅ Save» — создать заметку из черновика."""
+    return _button(buttons.AI_SAVE, Cb.AI_SAVE)
+
+
+def ai_change_source_button() -> InlineKeyboardButton:
+    """«🗂 Change source» — выбрать другой источник для черновика."""
+    return _button(buttons.AI_CHANGE_SOURCE, Cb.AI_SOURCE)
+
+
+def ai_edit_title_button() -> InlineKeyboardButton:
+    """«✏️ Edit title» — свой заголовок вместо предложенного моделью."""
+    return _button(buttons.AI_EDIT_TITLE, Cb.AI_TITLE)
+
+
+def ai_pick_source_button(index: int, source: str) -> InlineKeyboardButton:
+    """Источник из списка для черновика (в callback — только номер)."""
+    return _button(f"🗂 {source}", Cb.ai_source(index))
+
+
 def add_column_button() -> InlineKeyboardButton:
     """«➕ Add column» — новая пользовательская колонка."""
     return _button(buttons.ADD_COLUMN, Cb.COL_ADD)
@@ -206,8 +234,9 @@ def column_delete_button(col_index: int) -> InlineKeyboardButton:
 def main_menu() -> InlineKeyboardMarkup:
     """Главное меню: основные разделы."""
     rows = [
-        [add_note_button(), add_source_button()],
-        [sources_button(), columns_button()],
+        [add_note_button(), ai_note_button()],
+        [add_source_button(), sources_button()],
+        [columns_button()],
     ]
     return _markup(rows)
 
@@ -425,6 +454,31 @@ def note_wizard_step(note_id: str) -> InlineKeyboardMarkup:
     )
 
 
+# --- ✨ AI Note ---
+
+
+def ai_draft() -> InlineKeyboardMarkup:
+    """Предпросмотр черновика: сохранить, сменить источник, править TITLE."""
+    return _markup(
+        [
+            [ai_save_button(), ai_change_source_button()],
+            [ai_edit_title_button(), cancel_row()],
+        ]
+    )
+
+
+def ai_sources(items: Sequence[str]) -> InlineKeyboardMarkup:
+    """Выбор источника для черновика: кнопки + «➕ New source» и отмена."""
+    items_buttons = [
+        ai_pick_source_button(index, source)
+        for index, source in enumerate(items[:PAGE_SIZE])
+    ]
+    rows = _rows(items_buttons, 2)
+    rows.append([new_source_button()])
+    rows.append([cancel_row(), to_main_row()])
+    return _markup(rows)
+
+
 # --- Колонки ---
 
 
@@ -477,6 +531,13 @@ __all__ = [
     "add_column_button",
     "add_note_button",
     "add_source_button",
+    "ai_change_source_button",
+    "ai_draft",
+    "ai_edit_title_button",
+    "ai_note_button",
+    "ai_pick_source_button",
+    "ai_save_button",
+    "ai_sources",
     "back_to_columns_button",
     "back_to_main",
     "back_to_sources_button",

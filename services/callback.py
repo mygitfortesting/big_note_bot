@@ -69,6 +69,16 @@ class Cb:
     #: «➕ Add another note» — ещё одна заметка (``wiz_another:<note_id>``).
     WIZARD_ANOTHER = "wiz_another"
 
+    # --- ✨ AI Note: черновик из текста/ссылки/фото ---
+    #: «✨ AI Note» — вход в сценарий (ждём текст, ссылку или фото).
+    AI_NOTE = "ai_note"
+    #: «✅ Save» — создать заметку из разобранного черновика.
+    AI_SAVE = "ai_save"
+    #: «🗂 Change source» — список источников для черновика.
+    AI_SOURCE = "ai_source"
+    #: «✏️ Edit title» — свой заголовок до сохранения.
+    AI_TITLE = "ai_title"
+
     # --- Кнопки с параметрами ---
     SRC_SELECT = "src_select"
     SRC_NOTES = "src_notes"
@@ -166,6 +176,13 @@ class Cb:
         if not parts or not parts[0].isdigit():
             return None
         return int(parts[0])
+
+    # --- ✨ AI Note ---
+
+    @classmethod
+    def ai_source(cls, index: int) -> str:
+        """Выбрать для черновика источник с номером ``index`` (0-based)."""
+        return cls._join(cls.AI_SOURCE, index)
 
     # --- Заметки ---
 

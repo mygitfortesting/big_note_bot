@@ -9,6 +9,7 @@ insert_cols / delete_rows / delete_columns / batch_update / clear.
 
 from __future__ import annotations
 
+import io
 import re
 from typing import Any
 
@@ -199,8 +200,11 @@ class FakeMessage:
 
     def __init__(self, text: str = "", user_id: int = 1) -> None:
         self.text = text
+        self.caption: str | None = None
+        self.photo: list[Any] = []
         self.from_user = FakeUser(user_id)
         self.sent: list[dict[str, Any]] = []
+        self.bot = FakeBot()
 
     async def answer(
         self, text: str, reply_markup: Any = None, **kwargs: Any
@@ -218,6 +222,19 @@ class FakeMessage:
 
     async def delete(self) -> None:  # pragma: no cover - редко используется
         return None
+
+
+class FakeBot:
+    """Бот: отдаёт заранее заданные байты вместо скачивания файла."""
+
+    def __init__(self, data: bytes = b"photo-bytes") -> None:
+        self.data = data
+        self.downloaded: list[Any] = []
+
+    async def download(self, file: Any) -> io.BytesIO:
+        """Подмена ``Bot.download``: запоминает file_id, отдаёт буфер."""
+        self.downloaded.append(file)
+        return io.BytesIO(self.data)
 
 
 class FakeCallback:

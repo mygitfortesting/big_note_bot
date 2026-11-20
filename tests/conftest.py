@@ -8,7 +8,7 @@ from typing import Any
 
 import pytest
 
-from handlers import columns_handler
+from handlers import ai_note_handler, columns_handler
 from services.callback import Cb
 from services.sheets import NoteRepository
 from services.text_utils import escape_html
@@ -21,6 +21,7 @@ _REPO_MODULES = (
     "handlers.notes_handler",
     "handlers.wizard_handler",
     "handlers.sources_handler",
+    "handlers.ai_note_handler",
 )
 
 
@@ -44,6 +45,9 @@ def use_repo(monkeypatch: pytest.MonkeyPatch) -> Callable[[Any], Any]:
             module = sys.modules.get(module_name)
             if module is not None:
                 monkeypatch.setattr(module, "repo_of", _fake_repo)
+        # ✨ AI Note подключается отдельным роутером: его ``repo_of`` тоже
+        # подменяем явно, чтобы сценарий шёл по FakeSheet, а не в Google Sheets.
+        monkeypatch.setattr(ai_note_handler, "repo_of", _fake_repo)
         return repo
 
     return _install

@@ -645,6 +645,34 @@ class NoteRepository(_SheetBound):
                 partial.append(note)
         return exact or partial
 
+    def get_ai_prompt(self) -> str:
+        """
+        Кастомные правила разбора для ✨ AI Note из служебной строки листа.
+
+        Ищем строку, где ``TITLE`` (или ``SOURCE``) равен ``AI_PROMT`` и берём
+        текст из ``DESCRIPTION``; если конкретно она пуста — первую непустую
+        колонку после ``TITLE``. Пустая строка — своих правил у пользователя нет.
+        """
+        values = self._all_values()
+        headers = headers_of(values)
+        if not headers:
+            return ""
+        title_col = title_column_index(headers) - 1
+        source_col = source_column_index(headers) - 1
+        first_free = title_col + 1
+        for row in values[1:]:
+            names = {
+                cell(row, title_col).strip().upper(),
+                cell(row, source_col).strip().upper(),
+            }
+            if _PROMPT_ROW_NAME not in names:
+                continue
+            for index in range(first_free, len(headers)):
+                text = cell(row, index).strip()
+                if text:
+                    return text
+        return ""
+
     def locate(self, note_id: str) -> tuple[int, Note] | None:
         """
         (номер строки, заметка) или None, если записи с таким ID нет.

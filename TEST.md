@@ -230,3 +230,47 @@ pytest tests -m "not integration" -q
 | `test_delete_protected_column_alert_plain_text` | Alert при удалении защищённой колонки выводится чистым текстом без `&amp;`. |
 | `test_rows_per_row_validation` | `keyboards._rows` выбрасывает `ValueError` при `per_row < 1`. |
 | `test_column_order_reuses_cached_total` | `got_column_order` берёт сохранённый `column_total` из FSMContext. |
+
+---
+
+## `tests/test_ai_note.py` — ✨ AI Note (черновик из скриншота/ссылки/текста)
+
+Клиент модели подменяется двойником (`ai_client` в самом файле), сеть не нужна.
+
+### Разбор ответа модели
+
+| Тест | Проверяемое правило |
+| --- | --- |
+| `test_extract_json_accepts_wrapped_objects` | Строгий JSON читается и в обёртке ```` ```json ````, и с текстом вокруг объекта. |
+| `test_extract_json_rejects_garbage` | Ответ без JSON-объекта — `AiDraftError`. |
+| `test_page_kind_tells_links_from_text` | `http(s)://` — ссылка (разбираем страницу), остальное — текст. |
+| `test_link_page_falls_back_to_url` | Ссылка: заголовок и текст страницы идут в модель, при ошибке сети — сама ссылка. |
+| `test_parse_keeps_only_known_columns_and_file_id` | `fields` фильтруются строго по шапке листа, `file_id` фото уходит в черновик (SCREEN). |
+| `test_parse_accepts_legacy_reply_shapes` | Старые ответы модели (`extra_fields` и плоские ключи) по-прежнему разбираются. |
+| `test_parse_sends_photo_as_image_url` | Фото передаётся как `image_url` (`data:image/jpeg;base64,...`). |
+| `test_system_prompt_contains_columns_schema` | Схема `fields` в промпте строится из колонок листа, плюс правила `AI_PROMT` и источники. |
+| `test_field_headers_follow_current_table_columns` | `field_headers`: только заполняемые колонки, скриншот исключается по позиции. |
+| `test_draft_fields_skip_service_columns` | `draft_fields`: все заполненные поля черновика + SCREEN, без служебных колонок. |
+
+### Правила из таблицы и настройки
+
+| Тест | Проверяемое правило |
+| --- | --- |
+| `test_get_ai_prompt_reads_service_row` | `get_ai_prompt`: строка `AI_PROMT` по TITLE/SOURCE, текст из DESCRIPTION (иначе — пусто). |
+| `test_without_key_main_menu_still_works` | «✨ AI Note» есть в главном меню; без ключа бот работает, базовый URL — `https://openrouter.ai`, модель — `openrouter/free`. |
+
+### Сценарий
+
+| Тест | Проверяемое правило |
+| --- | --- |
+| `test_ai_note_without_key_explains_setup` | Без `AI_API_KEY` ✨ AI Note показывает понятное сообщение, состояние не ставится. |
+| `test_ai_note_draft_from_text_then_save` | Текст → статус анализа → «✨ AI Draft» с кнопками → «✅ Save» пишет поля и открывает карточку. |
+| `test_ai_note_follows_renamed_and_new_columns` | `DESCRIPTION` ➔ `SUMMARY` и новая `SALARY`: попадают в системный промпт, предпросмотр и соответствующие колонки листа. |
+| `test_ai_note_photo_saves_file_id_into_screen` | Фото разбирается, при сохранении `file_id` самого большого размера попадает в SCREEN. |
+| `test_ai_note_link_uses_page_title` | Ссылка: страница загружается через `fetch_page` и попадает в разбор. |
+| `test_ai_note_change_source_updates_draft` | «🗂 Change source»: выбор из списка меняет SOURCE черновика. |
+| `test_ai_note_new_source_from_draft` | «➕ New source» в черновике добавляет источник и ставит его в SOURCE. |
+| `test_ai_note_edit_title_before_save` | «✏️ Edit title»: свой заголовок виден в предпросмотре и попадает в таблицу. |
+| `test_ai_note_broken_model_answer_is_reported` | Модель ответила без JSON — пользователь видит AI_FAILED, лист не тронут. |
+| `test_ai_note_photo_on_text_model_hints_vision` | Фото и модель без vision — подсказка указать Vision-модель в `AI_MODEL`, лист не тронут. |
+| `test_vision_error_detection` | `is_vision_error` узнаёт жалобы модели на картинки и не путает их с другими ошибками. |

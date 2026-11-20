@@ -10,6 +10,7 @@ OPEN_TABLE = "🪎 Open Table"
 # --- Кнопки главного меню ---
 COLUMNS = "📊 Columns"
 SOURCES = "🗂 Sources"
+AI_NOTE = "✨ AI Note"
 
 # --- Кнопки навигации и карточки ---
 BACK = "⬅️ Back"
@@ -38,6 +39,38 @@ NEXT_FIELD = "⏭ Next"
 DONE_NOTE = "✅ Done"
 #: «➕ Add another note» — снова TITLE для того же источника.
 ADD_ANOTHER_NOTE = "➕ Add another note"
+
+# --- ✨ AI Note: черновик из скриншота, ссылки или текста ---
+#: Кнопки предпросмотра черновика.
+AI_SAVE = "✅ Save"
+AI_CHANGE_SOURCE = "🗂 Change source"
+AI_EDIT_TITLE = "✏️ Edit title"
+
+AI_NOTE_PROMPT = (
+    "✨ <b>AI Note</b>\n\n"
+    "Send a screenshot, a link or forwarded text — "
+    "I will turn it into a note draft:"
+)
+AI_ANALYZING = "✨ Analyzing..."
+AI_DRAFT_PROMPT = "✨ <b>AI Draft</b>\n\nCheck the fields and save the note:"
+AI_DRAFT_EMPTY = "⚠️ Could not build a draft. Send another message."
+AI_NO_KEY = (
+    "🔑 AI is not configured: <code>AI_API_KEY</code> is missing.\n"
+    "Ask the bot owner to set it, or use <b>➕ Add note</b>."
+)
+AI_FAILED = "⚠️ AI could not parse this message. Please try again."
+#: Модель из AI_MODEL не умеет смотреть картинки — просим Vision-модель.
+AI_NO_VISION = (
+    "🖼 This model cannot read images.\n"
+    "Please set a <b>Vision</b> model in <code>AI_MODEL</code> "
+    "(for example a vision model from OpenRouter), "
+    "or send the note as text or a link."
+)
+AI_TITLE_PROMPT = (
+    "✏️ <b>AI draft title</b>\n\n"
+    "Current: <b>{title}</b>\nWrite the new note <b>TITLE</b>:"
+)
+AI_TITLE_EMPTY = "⚠️ Title must not be empty."
 
 # --- Тексты ---
 TABLE_LINK_PROMPT = (
@@ -160,6 +193,9 @@ HELP_TEXT = (
     "<b>🗂 Sources</b> — numbered list of sources: show all notes "
     "(<b>📖 Show all notes</b>) or one by number, add, rename or delete "
     "a source.\n"
+    f"<b>{AI_NOTE}</b> — send a screenshot, a link or forwarded text: "
+    "the bot fills a draft, and you can <b>✅ Save</b> it, change the source "
+    "or edit the title.\n"
     f"<b>{COLUMNS}</b> — add, rename, reorder or delete custom columns "
     "(<code>ID</code>, <code>SOURCE</code>, <code>TITLE</code> stay first, "
     "<code>COMMENT</code> stays last).\n\n"
