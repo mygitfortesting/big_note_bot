@@ -48,9 +48,8 @@ def test_new_source_is_added_as_blank_source(use_repo: UseRepo) -> None:
     assert any("Source added" in item["text"] for item in source_message.sent)
     # Шапка + строка-болванка: только SOURCE, без ID и TITLE.
     assert len(sheet.rows) == 2
-    assert sheet.rows[1][0] == ""  # ID болванке не выдан
-    assert sheet.rows[1][1] == "Instagram"
-    assert sheet.rows[1][2] == ""
+    # Шапка + строка-болванка: только SOURCE, без ID и TITLE.
+    assert sheet.rows[1][:3] == ["", "Instagram", ""]
     assert repo.list_sources_with_counts() == [("Instagram", 0)]
     assert repo.list_notes() == []
 
@@ -65,11 +64,9 @@ def test_sources_menu_numbers_and_opens_actions(use_repo: UseRepo) -> None:
     asyncio.run(sources_handler.cb_manage_sources(open_callback, state))
 
     sent = open_callback.message.sent[-1]
-    assert "1. Blog -> 1" in sent["text"]
-    assert "2. YouTube -> 1" in sent["text"]
+    assert "1. Blog -> 1" in sent["text"] and "2. YouTube -> 1" in sent["text"]
     numbers = [button.text for button in flat(sent["reply_markup"])]
-    assert "1" in numbers
-    assert "2" in numbers
+    assert "1" in numbers and "2" in numbers
     assert state.data["source_list"] == ["Blog", "YouTube"]
 
     manage_callback = callback(Cb.src_manage(0))
@@ -78,21 +75,28 @@ def test_sources_menu_numbers_and_opens_actions(use_repo: UseRepo) -> None:
     action = manage_callback.message.sent[-1]
     text = action["text"]
     assert "Notes:" not in text
-    assert "<b>Blog</b>" in text
-    assert "1. <code>a</code>" in text
-    assert "Choose an action:" in text
+    assert all(
+        part in text
+        for part in ("<b>Blog</b>", "1. <code>a</code>", "Choose an action:")
+    )
     keyboard = flat(action["reply_markup"])
     texts = [button.text for button in keyboard]
     datas = [button.callback_data for button in keyboard]
     assert "1" in texts
-    assert Cb.note_view("1", "Blog") in datas
-    assert Cb.src_new_note(0) in datas
-    assert Cb.src_rename(0) in datas
-    assert Cb.src_del(0) in datas
+    assert all(
+        data in datas
+        for data in (
+            Cb.note_view("1", "Blog"),
+            Cb.src_new_note(0),
+            Cb.src_rename(0),
+            Cb.src_del(0),
+        )
+    )
     assert Cb.src_show_notes(0) not in datas
+    assert all(
+        label in texts for label in (buttons.RENAME_SOURCE, buttons.DELETE_SOURCE)
+    )
     assert "📂 Show notes" not in texts
-    assert buttons.RENAME_SOURCE in texts
-    assert buttons.DELETE_SOURCE in texts
 
 
 def test_source_actions_legacy_show_notes(use_repo: UseRepo) -> None:
@@ -160,21 +164,30 @@ def test_source_actions_show_all_notes(use_repo: UseRepo) -> None:
     text = sent["text"]
     # Компактная сводка: черта сразу под шапкой и без пустых строк.
     assert text.startswith("📂 <b>Blog</b> — 2 note(s):\n━━━━━━━━━━\n")
-    assert text.endswith("<b>COMMENT:</b> Note two")
-    assert "\n\n" not in text
-    assert "<b>TITLE:</b> First\n<b>DESCRIPTION:</b> Desc one" in text
-    assert "<b>TITLE:</b> Second\n<b>COMMENT:</b> Note two" in text
+    assert text.endswith("<b>COMMENT:</b> Note two") and "\n\n" not in text
+    assert all(
+        part in text
+        for part in (
+            "<b>TITLE:</b> First\n<b>DESCRIPTION:</b> Desc one",
+            "<b>TITLE:</b> Second\n<b>COMMENT:</b> Note two",
+            "<b>1.</b>\n",
+            "<b>2.</b>\n",
+        )
+    )
     assert "ID" not in text and SCREEN_HEADER not in text
-    assert "<b>1.</b>\n" in text
-    assert "<b>2.</b>\n" in text
     keyboard = flat(sent["reply_markup"])
     texts = [button.text for button in keyboard]
     datas = [button.callback_data for button in keyboard]
     assert "1" in texts and "2" in texts
-    assert Cb.note_view("1", "Blog") in datas
-    assert Cb.note_view("2", "Blog") in datas
-    assert Cb.src_manage(0) in datas
-    assert Cb.TO_MAIN in datas
+    assert all(
+        data in datas
+        for data in (
+            Cb.note_view("1", "Blog"),
+            Cb.note_view("2", "Blog"),
+            Cb.src_manage(0),
+            Cb.TO_MAIN,
+        )
+    )
 
 
 def test_notes_list_is_numbered_with_code_names(use_repo: UseRepo) -> None:
@@ -188,17 +201,20 @@ def test_notes_list_is_numbered_with_code_names(use_repo: UseRepo) -> None:
     asyncio.run(sources_handler.cb_source_notes(notes_callback, FakeState()))
 
     sent = notes_callback.message.sent[-1]
-    assert "1. <code>FlexiTech</code>" in sent["text"]
-    assert "2. <code>Yandex</code>" in sent["text"]
+    assert all(
+        part in sent["text"]
+        for part in ("1. <code>FlexiTech</code>", "2. <code>Yandex</code>")
+    )
     keyboard = flat(sent["reply_markup"])
     texts = [button.text for button in keyboard]
     datas = [button.callback_data for button in keyboard]
     assert texts[:2] == ["1", "2"]
-    assert Cb.note_view("a1", "Blog") in datas
-    assert Cb.note_view("b2", "Blog") in datas
+    assert all(
+        data in datas
+        for data in (Cb.note_view("a1", "Blog"), Cb.note_view("b2", "Blog"))
+    )
     assert not any(text.startswith("📝") for text in texts)
-    assert buttons.ADD_NOTE_ROW in texts
-    assert buttons.EDIT_SOURCE in texts
+    assert all(label in texts for label in (buttons.ADD_NOTE_ROW, buttons.EDIT_SOURCE))
 
 
 def test_notes_list_edit_source_button_starts_rename(use_repo: UseRepo) -> None:
@@ -263,8 +279,10 @@ def test_saved_source_alerts_on_invalid_index(
     asyncio.run(sources_handler.cb_source_manage(stale_callback, state))
 
     assert stale_callback.answers, "Bot answered nothing"
-    assert stale_callback.answers[-1]["text"] == buttons.SOURCE_LOST
-    assert stale_callback.answers[-1]["show_alert"] is True
+    assert stale_callback.answers[-1] == {
+        "text": buttons.SOURCE_LOST,
+        "show_alert": True,
+    }
     assert stale_callback.message.sent == []
 
 
@@ -299,8 +317,7 @@ def test_sources_menu_rename_flow(use_repo: UseRepo) -> None:
     assert any(
         "<b>Podcast</b> — 2 note(s):" in item["text"] for item in rename_message.sent
     )
-    assert state.data["source_list"] == ["Podcast"]
-    assert state.state is None
+    assert state.data["source_list"] == ["Podcast"] and state.state is None
 
 
 def test_sources_menu_delete_flow(use_repo: UseRepo) -> None:

@@ -119,10 +119,8 @@ def test_note_context_editable_columns_exclude_id_and_screen() -> None:
     ctx = _make_context(ID="id1", SOURCE="Blog", TITLE="Post")
     editable = [name for _, name in ctx.editable_columns()]
 
-    assert "ID" not in editable
-    assert SCREEN_HEADER not in editable
-    assert TITLE_HEADER in editable
-    assert COMMENT_HEADER in editable
+    assert "ID" not in editable and SCREEN_HEADER not in editable
+    assert TITLE_HEADER in editable and COMMENT_HEADER in editable
 
 
 def test_note_context_reads_screen_file_id() -> None:
@@ -171,7 +169,8 @@ def test_edit_field_accepts_any_column_except_id_and_screen() -> None:
     rating_col = headers.index("RATING") + 1
     screen_col = headers.index(SCREEN_HEADER) + 1
     assert Cb.note_edit_cell("id1", rating_col) in datas
-    assert Cb.note_edit_cell("id1", 1) not in datas  # ID
+    # ID и SCREEN не редактируются текстом.
+    assert Cb.note_edit_cell("id1", 1) not in datas
     assert Cb.note_edit_cell("id1", screen_col) not in datas
 
 
@@ -222,8 +221,7 @@ def test_screenshot_uses_screen_column_not_comment(
 
     data = rows_by_header(sheet)
     assert data[0][SCREEN_HEADER] == "rating_safe_id"
-    assert data[0]["RATING"] == ""
-    assert data[0][COMMENT_HEADER] == ""
+    assert not any(data[0][name] for name in ("RATING", COMMENT_HEADER))
     assert state.state is None
 
 
@@ -242,8 +240,7 @@ def test_screenshot_without_photo_sends_warning(
 
     assert len(empty_photo_message.sent) == 1
     assert "Please send a photo" in empty_photo_message.sent[0]["text"]
-    assert sheet.rows[1] == note_row("1", "Blog", "Post")
-    assert state.state is None
+    assert sheet.rows[1] == note_row("1", "Blog", "Post") and state.state is None
 
 
 def test_screenshot_without_screen_column_reports_error(
@@ -265,8 +262,7 @@ def test_screenshot_without_screen_column_reports_error(
 
     assert len(no_screen_message.sent) == 1
     assert "SCREEN" in no_screen_message.sent[0]["text"]
-    assert sheet.rows[1] == ["1", "Blog", "Post", "", "", ""]
-    assert state.state is None
+    assert sheet.rows[1] == ["1", "Blog", "Post", "", "", ""] and state.state is None
 
 
 # --- Поиск по названию ---
@@ -285,9 +281,8 @@ def test_search_by_title_opens_single_card(
     asyncio.run(notes_handler.search_by_title(search_message))
 
     assert len(search_message.sent) == 1
-    text = search_message.sent[-1]["text"]
-    assert "FlexiTech" in text
-    assert "yandex" not in text.lower()
+    text = search_message.sent[-1]["text"].lower()
+    assert "flexitech" in text and "yandex" not in text
     datas = [
         button.callback_data for button in flat(search_message.sent[-1]["reply_markup"])
     ]
@@ -310,8 +305,13 @@ def test_search_by_title_lists_several_matches(
     asyncio.run(notes_handler.search_by_title(multi_message))
 
     sent = multi_message.sent[-1]
-    assert "1. <code>Yandex Zen</code> (<i>Blog</i>)" in sent["text"]
-    assert "2. <code>Yandex Music</code> (<i>News</i>)" in sent["text"]
+    assert all(
+        part in sent["text"]
+        for part in (
+            "1. <code>Yandex Zen</code> (<i>Blog</i>)",
+            "2. <code>Yandex Music</code> (<i>News</i>)",
+        )
+    )
     keyboard = flat(sent["reply_markup"])
     assert [button.text for button in keyboard][:2] == ["1", "2"]
     assert any(
@@ -332,11 +332,9 @@ def test_search_by_title_nothing_found(
     sent = nothing_message.sent[-1]
     text = sent["text"]
     assert text.startswith(buttons.NOTHING_FOUND.split("{")[0])
-    assert "&lt;script&gt;" in text
-    assert "<script>" not in text
+    assert "&lt;script&gt;" in text and "<script>" not in text
     datas = [button.callback_data for button in flat(sent["reply_markup"])]
-    assert Cb.NOTE_ADD in datas
-    assert Cb.TO_MAIN in datas
+    assert Cb.NOTE_ADD in datas and Cb.TO_MAIN in datas
 
 
 def test_search_ignores_commands(
@@ -361,8 +359,7 @@ def test_source_navigation_buttons(
     """Sources manage — без Cancel; ввод TITLE — с Cancel."""
     by_source = keyboards.sources_manage(2)
     datas = [button.callback_data for button in flat(by_source)]
-    assert Cb.CANCEL_INPUT not in datas
-    assert Cb.TO_MAIN in datas
+    assert Cb.CANCEL_INPUT not in datas and Cb.TO_MAIN in datas
 
     repo, _ = repo_for([note_row("1", "Blog", "a")])
     use_repo(repo)
@@ -373,8 +370,7 @@ def test_source_navigation_buttons(
 
     prompt = title_message.sent[-1]
     title_datas = [button.callback_data for button in flat(prompt["reply_markup"])]
-    assert Cb.CANCEL_INPUT in title_datas
-    assert Cb.TO_MAIN in title_datas
+    assert Cb.CANCEL_INPUT in title_datas and Cb.TO_MAIN in title_datas
 
 
 def test_split_messages_respects_limit() -> None:
@@ -407,34 +403,15 @@ def test_with_min_width() -> None:
         padded = with_min_width(target)
 
         assert padded.endswith(WIDTH_SPACER)
-        assert padded.count(WIDTH_SPACER) == 1
-        assert "\n\n" not in padded
+        assert padded.count(WIDTH_SPACER) == 1 and "\n\n" not in padded
         assert with_min_width(padded) == padded
+    # Текст с готовой распоркой — уже с одним переводом строки.
+    assert with_min_width("Column: URL\n\n") == f"Column: URL\n{WIDTH_SPACER}"
 
     long_text = "Short line\n" + "x" * MIN_BUBBLE_WIDTH
     assert with_min_width(long_text) == long_text
-    assert WIDTH_SPACER not in with_min_width(long_text)
-
-
-def test_with_min_width_pads_short_text() -> None:
-    """Короткий текст: распорка через один перевод строки, без пустой строки."""
-    result = with_min_width("Column: URL\n\n")
-
-    assert result == f"Column: URL\n{WIDTH_SPACER}"
-    assert "\n\n" not in result
-
-
-def test_with_min_width_short_text_padding() -> None:
-    """Идемпотентность: распорка не добавляется дважды (короткий/длинный)."""
-    once = with_min_width("hi")
-
-    assert with_min_width(once) == once
-    assert with_min_width(with_min_width("hi")) == once
-    assert with_min_width(once).count(WIDTH_SPACER) == 1
-
-    long_text = "x" * MIN_BUBBLE_WIDTH
-    assert with_min_width(long_text) == long_text
     assert with_min_width(with_min_width(long_text)) == long_text
+    assert WIDTH_SPACER not in with_min_width(long_text)
 
 
 def test_note_delete_ask_shows_confirmation(use_repo: UseRepo) -> None:
@@ -447,11 +424,10 @@ def test_note_delete_ask_shows_confirmation(use_repo: UseRepo) -> None:
 
     assert len(cb.message.sent) == 1
     sent = cb.message.sent[-1]
-    assert "Delete note" in sent["text"]
-    assert "Note Title" in sent["text"]
+    text = sent["text"]
+    assert all(part in text for part in ("Delete note", "Note Title"))
     datas = [button.callback_data for button in flat(sent["reply_markup"])]
-    assert Cb.note_del("1") in datas
-    assert Cb.note_view("1", "Blog") in datas
+    assert Cb.note_del("1") in datas and Cb.note_view("1", "Blog") in datas
 
 
 def test_note_delete_executes_under_user_lock(use_repo: UseRepo) -> None:
@@ -463,8 +439,7 @@ def test_note_delete_executes_under_user_lock(use_repo: UseRepo) -> None:
 
     asyncio.run(notes_handler.cb_note_delete(cb, state))
 
-    assert len(sheet.rows) == 1  # Только шапка
-    assert repo.get("1") is None
+    assert len(sheet.rows) == 1 and repo.get("1") is None  # Только шапка
 
 
 def test_source_name_with_colon_rejected_in_handlers(use_repo: UseRepo) -> None:

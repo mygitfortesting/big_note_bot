@@ -8,7 +8,6 @@ from typing import Any
 
 import pytest
 
-from config import NOTES_HEADERS
 from handlers import wizard_handler
 from handlers.notes_common import NoteStates
 from services import buttons
@@ -54,7 +53,7 @@ def _start_wizard(
 # --- Добавление источника ---
 
 
-def test_add_note_shows_sources_and_new_source_button(use_repo) -> None:
+def test_add_note_shows_sources_and_new_source_button(use_repo: UseRepo) -> None:
     """«➕ Add note»: сначала кнопки источников + «➕ Новый источник»."""
     repo, _ = repo_for([note_row("1", "Blog", "a"), note_row("2", "YouTube", "b")])
     use_repo(repo)
@@ -68,17 +67,16 @@ def test_add_note_shows_sources_and_new_source_button(use_repo) -> None:
     assert sent["text"] == buttons.NEW_NOTE_PROMPT
     keyboard = flat(sent["reply_markup"])
     datas = [button.callback_data for button in keyboard]
-    assert Cb.src_select("Blog") in datas
-    assert Cb.src_select("YouTube") in datas
+    assert all(
+        data in datas for data in (Cb.src_select("Blog"), Cb.src_select("YouTube"))
+    )
     assert Cb.SRC_ADD in datas
     texts = [button.text for button in keyboard]
-    assert "🗂 Blog" in texts
-    assert "🗂 YouTube" in texts
-    assert buttons.NEW_SOURCE in texts
+    assert all(part in texts for part in ("🗂 Blog", "🗂 YouTube", buttons.NEW_SOURCE))
     assert state.state is None
 
 
-def test_add_note_without_sources_asks_for_new_source(use_repo) -> None:
+def test_add_note_without_sources_asks_for_new_source(use_repo: UseRepo) -> None:
     """Нет источников — бот сразу просит имя нового источника."""
     repo, _ = repo_for([])
     use_repo(repo)
@@ -93,7 +91,7 @@ def test_add_note_without_sources_asks_for_new_source(use_repo) -> None:
     assert state.state == NoteStates.wait_source
 
 
-def test_add_source_lists_existing_sources_and_cancel(use_repo) -> None:
+def test_add_source_lists_existing_sources_and_cancel(use_repo: UseRepo) -> None:
     """«➕ Add source» и кнопка «➕ New source»: список + «✖️ Cancel»."""
     repo, _ = repo_for(
         [
@@ -112,14 +110,15 @@ def test_add_source_lists_existing_sources_and_cancel(use_repo) -> None:
     assert add_callback.message.sent, "Bot sent nothing"
     sent = add_callback.message.sent[-1]
     text = sent["text"]
-    assert "Existing:" in text
-    assert "<code>Instagram</code>, <code>Telegram</code>" in text
+    assert all(
+        part in text
+        for part in ("Existing:", "<code>Instagram</code>, <code>Telegram</code>")
+    )
     assert text.count("<code>Instagram</code>") == 1  # источники уникальны
 
     keyboard = flat(sent["reply_markup"])
     datas = [button.callback_data for button in keyboard]
-    assert Cb.CANCEL_INPUT in datas
-    assert Cb.TO_MAIN in datas
+    assert Cb.CANCEL_INPUT in datas and Cb.TO_MAIN in datas
     assert any(
         button.text == buttons.CANCEL and button.callback_data == Cb.CANCEL_INPUT
         for button in keyboard
@@ -151,7 +150,7 @@ def test_add_source_lists_existing_sources_and_cancel(use_repo) -> None:
     ],
 )
 def test_add_source_prompt_formatting(
-    use_repo, rows: list[list[str]], expected: list[str], absent: list[str]
+    use_repo: UseRepo, rows: list[list[str]], expected: list[str], absent: list[str]
 ) -> None:
     """Промпт «🗂 Add source»: уникальный список, экранирование, Cancel."""
     repo, _ = repo_for(rows)
@@ -166,11 +165,10 @@ def test_add_source_prompt_formatting(
     assert all(chunk in text for chunk in expected)
     assert all(chunk not in text for chunk in absent)
     datas = [button.callback_data for button in flat(sent["reply_markup"])]
-    assert Cb.CANCEL_INPUT in datas
-    assert state.state == NoteStates.wait_source
+    assert Cb.CANCEL_INPUT in datas and state.state == NoteStates.wait_source
 
 
-def test_select_source_then_name_creates_note(use_repo) -> None:
+def test_select_source_then_name_creates_note(use_repo: UseRepo) -> None:
     """Выбор источника ➔ ввод имени ➔ заметка создана и отсортирована."""
     repo, sheet = repo_for([note_row("1", "YouTube", "b")])
     use_repo(repo)
@@ -196,7 +194,7 @@ def test_select_source_then_name_creates_note(use_repo) -> None:
 # --- Шаги мастера ---
 
 
-def test_wizard_starts_after_title(use_repo) -> None:
+def test_wizard_starts_after_title(use_repo: UseRepo) -> None:
     """После TITLE бот спрашивает первую оставшуюся колонку с кнопками."""
     _, state, started = _start_wizard(use_repo, title="Fresh")
 
@@ -219,7 +217,7 @@ def test_wizard_starts_after_title(use_repo) -> None:
     ]
 
 
-def test_wizard_done_opens_card(use_repo) -> None:
+def test_wizard_done_opens_card(use_repo: UseRepo) -> None:
     """«✅ Done»: мастер завершается и открывается карточка заметки."""
     _, state, _ = _start_wizard(use_repo)
     note_id = state.data["note_id"]
@@ -235,7 +233,7 @@ def test_wizard_done_opens_card(use_repo) -> None:
     assert Cb.note_edit_menu(note_id) in datas
 
 
-def test_wizard_another_note_same_source(use_repo) -> None:
+def test_wizard_another_note_same_source(use_repo: UseRepo) -> None:
     """«➕ Add another note»: снова TITLE для того же источника."""
     _, state, _ = _start_wizard(use_repo)
 
@@ -248,7 +246,7 @@ def test_wizard_another_note_same_source(use_repo) -> None:
     assert "Source: <b>Blog</b>" in prompt
 
 
-def test_wizard_full_walkthrough(use_repo) -> None:
+def test_wizard_full_walkthrough(use_repo: UseRepo) -> None:
     """Текст ➔ Next ➔ фото SCREEN ➔ последнее поле ➔ карточка заметки."""
     sheet, state, _ = _start_wizard(use_repo)
     note_id = state.data["note_id"]
@@ -285,7 +283,7 @@ def test_wizard_full_walkthrough(use_repo) -> None:
     assert row[COMMENT_HEADER] == "Last field"
 
 
-def test_wizard_buttons_work_after_fsm_reset(use_repo) -> None:
+def test_wizard_buttons_work_after_fsm_reset(use_repo: UseRepo) -> None:
     """Кнопки мастера работают с пустым FSMContext (рестарт сервера)."""
     repo, _ = repo_for([note_row("1", "Blog", "a")])
     use_repo(repo)
@@ -301,8 +299,7 @@ def test_wizard_buttons_work_after_fsm_reset(use_repo) -> None:
     assert next_state.data["title"] == title
     assert next_state.data["step"] == 1
     prompt = next_callback.message.sent[-1]["text"]
-    assert "<b>URL</b>" in prompt
-    assert f"New note: <b>{title}</b>" in prompt
+    assert "<b>URL</b>" in prompt and f"New note: <b>{title}</b>" in prompt
 
     done_callback = callback(Cb.wizard_done(note_id))
     done_state = FakeState()
@@ -320,7 +317,7 @@ def test_wizard_buttons_work_after_fsm_reset(use_repo) -> None:
     assert "Source: <b>Blog</b>" in another_callback.message.sent[-1]["text"]
 
 
-def test_wizard_photo_uses_next_then_saves_file_id(use_repo) -> None:
+def test_wizard_photo_uses_next_then_saves_file_id(use_repo: UseRepo) -> None:
     """На шаге SCREEN фото пишет file_id в SCREEN и ведёт к COMMENT."""
     sheet, state, _ = _start_wizard(use_repo)
 
@@ -337,21 +334,5 @@ def test_wizard_photo_uses_next_then_saves_file_id(use_repo) -> None:
 
     screen_row = next(row for row in rows_by_header(sheet) if row[ID_HEADER] == note_id)
     assert screen_row[SCREEN_HEADER] == "wizard_file_id"
-    assert state.state == NoteStates.wizard_step
-    assert state.data["step"] == 3
+    assert state.state == NoteStates.wizard_step and state.data["step"] == 3
     assert "<b>COMMENT</b>" in photo_message.sent[-1]["text"]
-
-
-def test_wizard_columns_skip_service_headers() -> None:
-    """Мастер не спрашивает ID, SOURCE и TITLE — они уже известны."""
-    columns = wizard_handler._wizard_columns(list(NOTES_HEADERS))
-
-    names = [name for _, name in columns]
-    assert names == ["DESCRIPTION", "URL", "SCREEN", "COMMENT"]
-
-
-def test_wizard_columns_start_at_description() -> None:
-    """Первая колонка мастера — DESCRIPTION (4-я колонка листа)."""
-    columns = wizard_handler._wizard_columns(list(NOTES_HEADERS))
-
-    assert columns[0][0] == 4

@@ -112,7 +112,7 @@ pytest tests -m "not integration" -q
 | `test_reorder_middle_rejects_bad_permutation` | Повторы и чужие номера отклоняются. |
 | `test_reorder_middle_keeps_leading_and_comment` | Средние колонки меняются местами, служебные остаются на местах. |
 | `test_screen_slot_index_resolution` | `screen_slot_index`: имя `SCREEN` ➔ позиция перед `COMMENT` ➔ базовая позиция. |
-| `test_protected_columns_accepts_preloaded_headers` | `protected_columns` может принимать уже прочитанные `headers`. |
+| `test_protected_columns_accepts_cached_headers` | `protected_columns` может принимать уже прочитанные `headers`. |
 
 ---
 
@@ -149,9 +149,7 @@ pytest tests -m "not integration" -q
 | `test_source_navigation_buttons` | «Sources manage» без Cancel, ввод TITLE — с Cancel. |
 | `test_split_messages_respects_limit` | Длинный текст режется на части не длиннее лимита. |
 | `test_split_messages_short_text_single_part` | Короткий текст — одна часть, пустой — ни одной. |
-| `test_with_min_width` | Распорка добавляется только короткому тексту (по видимому тексту без тегов), без `\n\n`; длинному — не добавляется. |
-| `test_with_min_width_pads_short_text` | Короткий текст: распорка через один `\n`, без пустой строки. |
-| `test_with_min_width_short_text_padding` | Идемпотентность: повторная распорка не добавляется ни к короткому, ни к длинному тексту. |
+| `test_with_min_width` | Распорка добавляется только короткому тексту (по видимому тексту без тегов), через один `\n` и без `\n\n`; повторная не добавляется, длинному — тоже. |
 | `test_note_delete_ask_shows_confirmation` | Нажатие «Delete» в карточке открывает экран подтверждения. |
 | `test_note_delete_executes_under_user_lock` | Подтверждение удаления удаляет строку заметки под `user_lock`. |
 | `test_source_name_with_colon_rejected_in_handlers` | Хендлеры отклоняют имя источника с символом `:`. |
@@ -176,14 +174,12 @@ pytest tests -m "not integration" -q
 
 | Тест | Проверяемое правило |
 | --- | --- |
-| `test_wizard_starts_after_title` | Мастер спрашивает DESCRIPTION, показывает TITLE и кнопки шага. |
+| `test_wizard_starts_after_title` | Мастер спрашивает DESCRIPTION (первая пользовательская колонка, не ID/SOURCE/TITLE), показывает TITLE и кнопки шага. |
 | `test_wizard_full_walkthrough` | Текст → Next → фото SCREEN → последнее поле → открывается карточка. |
 | `test_wizard_done_opens_card` | «✅ Done» открывает карточку заметки. |
 | `test_wizard_another_note_same_source` | «➕ Add another note» снова просит TITLE того же источника. |
 | `test_wizard_buttons_work_after_fsm_reset` | Кнопки мастера работают с пустым FSM (рестарт сервера). |
 | `test_wizard_photo_uses_next_then_saves_file_id` | «⏭ Next» доводит до SCREEN, фото пишет file_id в SCREEN. |
-| `test_wizard_columns_skip_service_headers` | Мастер не спрашивает ID, SOURCE и TITLE. |
-| `test_wizard_columns_start_at_description` | Первая колонка мастера — DESCRIPTION (4-я колонка листа). |
 
 ---
 

@@ -53,8 +53,7 @@ def test_comment_stays_last_after_reorder() -> None:
     order.insert(3, price_col)  # PRICE сразу после TITLE
     service.reorder(order)
 
-    assert sheet.rows[0][-1] == COMMENT_HEADER
-    assert sheet.rows[0][3] == "PRICE"
+    assert sheet.rows[0][-1] == COMMENT_HEADER and sheet.rows[0][3] == "PRICE"
 
 
 @pytest.mark.parametrize("header", [ID_HEADER, SOURCE_HEADER, TITLE_HEADER])
@@ -116,8 +115,7 @@ def test_user_column_can_be_renamed_and_deleted() -> None:
     assert sheet.rows[0][price_col - 1] == "COST"
 
     service.delete(price_col)
-    assert COMMENT_HEADER in sheet.rows[0]
-    assert "COST" not in sheet.rows[0]
+    assert COMMENT_HEADER in sheet.rows[0] and "COST" not in sheet.rows[0]
     assert sheet.rows[0][-1] == COMMENT_HEADER
 
 
@@ -144,8 +142,7 @@ def test_reorder_keeps_data() -> None:
     assert header[:3] == [ID_HEADER, SOURCE_HEADER, TITLE_HEADER]
     assert header[-1] == COMMENT_HEADER
     row = dict(zip(sheet.rows[0], sheet.rows[1]))
-    assert row[TITLE_HEADER] == "Note"
-    assert row["DESCRIPTION"] == "Desc"
+    assert row[TITLE_HEADER] == "Note" and row["DESCRIPTION"] == "Desc"
 
 
 def test_reorder_middle_rejects_bad_permutation() -> None:
@@ -170,10 +167,8 @@ def test_reorder_middle_keeps_leading_and_comment() -> None:
     assert header[-1] == COMMENT_HEADER
     assert header[3:6] == ["URL", "DESCRIPTION", SCREEN_HEADER]
     row = dict(zip(sheet.rows[0], sheet.rows[1]))
-    assert row["DESCRIPTION"] == "Desc"
-    assert row["URL"] == "https://x"
-    assert row[SCREEN_HEADER] == "fid"
-    assert row[COMMENT_HEADER] == "c"
+    assert row["DESCRIPTION"] == "Desc" and row["URL"] == "https://x"
+    assert row[SCREEN_HEADER] == "fid" and row[COMMENT_HEADER] == "c"
 
 
 @pytest.mark.parametrize(
@@ -211,8 +206,3 @@ def test_protected_columns_accepts_cached_headers() -> None:
     service, _ = columns_for([])
     headers = service.headers()
     assert service.protected_columns(headers) == service.protected_columns()
-
-
-test_protected_columns_accepts_preloaded_headers = (
-    test_protected_columns_accepts_cached_headers
-)

@@ -76,8 +76,7 @@ def test_short_rows_are_padded_to_header_width() -> None:
     repo.sort_notes()
 
     note = repo.get("2")
-    assert note is not None
-    assert isinstance(repo, NoteRepository)
+    assert note is not None and isinstance(repo, NoteRepository)
     assert note.values[-1] == ""
 
 
@@ -196,8 +195,8 @@ def test_manual_row_without_id_gets_generated_id() -> None:
     assert len(notes) == 1
     generated = notes[0].note_id
     assert generated
-    assert sheet.rows[1][0] == generated  # ID записан в колонку A
-    assert repo.get(generated) is not None
+    # ID записан в колонку A и читается через repo.
+    assert sheet.rows[1][0] == generated and repo.get(generated) is not None
 
 
 def test_manual_rows_batch_update_writes_all_ids() -> None:
@@ -236,8 +235,7 @@ def test_manual_row_without_id_is_found_when_listing_source() -> None:
 
     notes = repo.list_by_source("blog")
 
-    assert len(notes) == 1
-    assert sheet.rows[1][0]
+    assert len(notes) == 1 and sheet.rows[1][0]
     assert notes[0].note_id == sheet.rows[1][0]
 
 
@@ -259,11 +257,9 @@ def test_add_source_creates_blank_row_without_id() -> None:
     assert repo.add_source("Podcast") is True
 
     assert repo.list_sources_with_counts() == [("Podcast", 0)]
-    assert repo.list_sources() == ["Podcast"]
-    assert repo.list_notes() == []
-    assert sheet.rows[1][0] == ""  # ID болванке не выдан
-    assert sheet.rows[1][1] == "Podcast"
-    assert sheet.rows[1][2] == ""
+    assert repo.list_sources() == ["Podcast"] and repo.list_notes() == []
+    # Болванка: только SOURCE, без ID и TITLE.
+    assert sheet.rows[1][:3] == ["", "Podcast", ""]
 
 
 def test_add_source_is_case_insensitive_and_idempotent() -> None:
@@ -299,9 +295,7 @@ def test_create_fills_blank_source_row() -> None:
     note_id = repo.create("podcast", "First")
 
     assert len(sheet.rows) == 2  # шапка + одна строка
-    assert sheet.rows[1][0] == note_id
-    assert sheet.rows[1][1] == "podcast"
-    assert sheet.rows[1][2] == "First"
+    assert sheet.rows[1][:3] == [note_id, "podcast", "First"]
     assert repo.list_sources_with_counts() == [("podcast", 1)]
     assert [note.note_id for note in repo.list_by_source("Podcast")] == [note_id]
 
@@ -390,8 +384,7 @@ def test_delete_removes_row() -> None:
 
     repo.delete("1")
 
-    assert len(sheet.rows) == 2  # шапка + одна заметка
-    assert repo.get("1") is None
+    assert len(sheet.rows) == 2 and repo.get("1") is None  # шапка + одна заметка
 
 
 def test_prompt_row_is_not_a_note() -> None:

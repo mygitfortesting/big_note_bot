@@ -40,11 +40,15 @@ def test_columns_menu_lists_only_custom_columns(use_service: UseService) -> None
     message = menu.message.sent[-1]
     text = message["text"]
     # DESCRIPTION, URL, SCREEN — пользовательские (между TITLE и COMMENT)
-    assert "1. <code>DESCRIPTION</code>" in text
-    assert "2. <code>URL</code>" in text
-    assert "3. <code>SCREEN</code>" in text
-    assert "1. <code>ID</code>" not in text
-    assert "Fixed:" not in text
+    assert all(
+        part in text
+        for part in (
+            "1. <code>DESCRIPTION</code>",
+            "2. <code>URL</code>",
+            "3. <code>SCREEN</code>",
+        )
+    )
+    assert "1. <code>ID</code>" not in text and "Fixed:" not in text
 
     rows = message["reply_markup"].inline_keyboard
     texts = [button.text for button in flat(message["reply_markup"])]
@@ -62,10 +66,7 @@ def test_columns_menu_lists_only_custom_columns(use_service: UseService) -> None
         buttons.CHANGE_ORDER,
     ]
     assert Cb.COL_REORDER in [button.callback_data for button in rows[-2]]
-    assert "ID" not in texts
-    assert "SOURCE" not in texts
-    assert "TITLE" not in texts
-    assert "COMMENT" not in texts
+    assert not any(label in texts for label in ("ID", "SOURCE", "TITLE", "COMMENT"))
     # Индексы колонок в шапке сохранены для меню действий.
     assert state.data["column_list"] == [4, 5, 6]
 
@@ -90,8 +91,7 @@ def test_column_number_opens_actions(use_service: UseService) -> None:
         buttons.BACK,
         buttons.TO_MAIN,
     ]
-    assert buttons.CHANGE_ORDER not in texts
-    assert Cb.COL_REORDER not in datas
+    assert buttons.CHANGE_ORDER not in texts and Cb.COL_REORDER not in datas
     assert Cb.col_rename(5) in datas
     assert not any("col_move" in (data or "") for data in datas)
 
@@ -104,11 +104,11 @@ def test_change_order_full_flow(use_service: UseService) -> None:
     asyncio.run(columns_handler.cb_column_reorder(order_callback, state))
 
     prompt = order_callback.message.sent[-1]
-    assert "1. <code>DESCRIPTION</code>" in prompt["text"]
-    assert "2. <code>URL</code>" in prompt["text"]
+    text = prompt["text"]
+    assert "1. <code>DESCRIPTION</code>" in text and "2. <code>URL</code>" in text
     # Готовая для копирования строка текущих номеров — одна, последней.
-    assert prompt["text"].endswith("Copy: <code>1 2 3</code>")
-    assert prompt["text"].count("Copy:") == 1
+    assert text.endswith("Copy: <code>1 2 3</code>")
+    assert text.count("Copy:") == 1
     datas = [button.callback_data for button in flat(prompt["reply_markup"])]
     assert Cb.CANCEL_INPUT in datas
     assert state.state == columns_handler.ColumnStates.wait_order
@@ -241,12 +241,10 @@ def test_delete_protected_column_alert_plain_text(
     del_cb = callback(Cb.col_del(1))  # ID
     asyncio.run(columns_handler.cb_column_delete(del_cb, state))
 
-    assert del_cb.answers[-1]["show_alert"] is True
-    alert_text = del_cb.answers[-1]["text"] or ""
-    assert "&amp;" not in alert_text
-    assert "&lt;" not in alert_text
-    assert "🔒" in alert_text
-    assert "service column" in alert_text
+    assert del_cb.answers[-1] == {
+        "text": "🔒 Column 1 (ID) is a service column and cannot be deleted.",
+        "show_alert": True,
+    }
 
 
 def test_rows_per_row_validation() -> None:
