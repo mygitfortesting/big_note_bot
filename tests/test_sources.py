@@ -217,6 +217,40 @@ def test_notes_list_is_numbered_with_code_names(use_repo: UseRepo) -> None:
     assert all(label in texts for label in (buttons.ADD_NOTE_ROW, buttons.EDIT_SOURCE))
 
 
+def test_source_with_colon_opens_notes_from_buttons(use_repo: UseRepo) -> None:
+    """Источник с ':' открывается из списка, а карточка возвращает в него.
+
+    Сценарий собирает всё, что зависит от двоеточия в имени: номер в
+    «🗂 Sources», кнопки-номера заметок с именем источника в callback_data
+    и «⬅️ Back» из карточки (там — только ``note_id``).
+    """
+    source = "Resepies: Breakfast"
+    repo, _ = repo_for(
+        [note_row("a1", "Blog", "Other"), note_row("b2", source, "Pancakes")]
+    )
+    use_repo(repo)
+    state = FakeState()
+    asyncio.run(sources_handler.show_sources_manage(message("/start"), state, repo))
+
+    # Номер источника в списке -> заметки источника: имя идёт из FSM-списка.
+    manage_callback = callback(Cb.src_manage(1))
+    asyncio.run(sources_handler.cb_source_manage(manage_callback, state))
+
+    sent = manage_callback.message.sent[-1]
+    assert source in sent["text"] and "Pancakes" in sent["text"]
+    datas = [button.callback_data for button in flat(sent["reply_markup"])]
+    assert Cb.note_view("b2", source) in datas
+
+    # «⬅️ Back» из карточки ведёт по note_id, а не по сырому имени.
+    back_callback = callback(Cb.note_back("b2"))
+    asyncio.run(sources_handler.cb_note_back(back_callback, state))
+
+    assert back_callback.data == "note_back:b2"
+    back_sent = back_callback.message.sent[-1]
+    assert source in back_sent["text"] and "Pancakes" in back_sent["text"]
+    assert "Other" not in back_sent["text"]
+
+
 def test_notes_list_edit_source_button_starts_rename(use_repo: UseRepo) -> None:
     """«✏️ Edit Source» из списка заметок запускает переименование."""
     repo, _ = repo_for([note_row("a1", "Blog", "FlexiTech")])

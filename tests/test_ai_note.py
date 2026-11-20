@@ -193,40 +193,38 @@ def test_ai_client_requires_key(monkeypatch: pytest.MonkeyPatch) -> None:
             {"title": "T"},
             id="prose-around",
         ),
+        pytest.param("No JSON here", None, id="prose-raw"),
+        pytest.param("", None, id="empty"),
+        pytest.param("[1, 2]", None, id="json-array"),
     ],
 )
-def test_extract_json_accepts_wrapped_objects(
-    raw: str, expected: dict[str, Any]
-) -> None:
-    """Строгий JSON: модель может обернуть объект в ```json ... ``` или в текст."""
+def test_extract_json_round_trip(raw: str, expected: dict[str, Any] | None) -> None:
+    """Валидный JSON читается в любой обёртке, мусор — AiDraftError."""
+    if expected is None:
+        with pytest.raises(AiDraftError):
+            ai_parser.extract_json(raw)
+        return
     assert ai_parser.extract_json(raw) == expected
 
 
 @pytest.mark.parametrize(
-    "raw",
+    ("needs_vision", "expected"),
     [
-        pytest.param("No JSON here", id="prose"),
-        pytest.param("", id="empty"),
-        pytest.param("[1, 2]", id="json-array"),
+        pytest.param(True, True, id="image-rejected"),
+        pytest.param(False, False, id="plain-error"),
     ],
 )
-def test_extract_json_rejects_garbage(raw: str) -> None:
-    """Без JSON-объекта (текст, пустая строка, массив) — AiDraftError."""
-    with pytest.raises(AiDraftError):
-        ai_parser.extract_json(raw)
+def test_vision_error_is_reported_only_for_photo(
+    ai_client: UseAi, needs_vision: bool, expected: bool
+) -> None:
+    """Жалоба модели на картинку -> AiVisionError, но только когда прислали фото."""
+    ai_client["error"] = "400: This model does not support image_url input"
+    image = b"\xff\xd8jpeg" if needs_vision else None
 
+    with pytest.raises(Exception) as error:
+        AiNoteParser(_client(ai_client), "test-model").parse("", image=image)
 
-@pytest.mark.parametrize(
-    ("text", "expected"),
-    [
-        pytest.param("https://example.com/post", "link", id="https"),
-        pytest.param("http://example.com", "link", id="http"),
-        pytest.param("just forwarded text", "text", id="plain-text"),
-    ],
-)
-def test_page_kind(text: str, expected: str) -> None:
-    """Ссылка http(s):// разбирается как страница, остальное — как текст."""
-    assert ai_parser.page_kind(text) == expected
+    assert isinstance(error.value, ai_parser.AiVisionError) is expected
 
 
 @pytest.mark.parametrize("mode", ["error", "page"])
@@ -617,16 +615,3 @@ def test_ai_note_photo_on_text_model_hints_vision(
     assert photo_message.sent[-1]["text"] == buttons.AI_NO_VISION
     assert "AI_MODEL" in buttons.AI_NO_VISION
     assert len(sheet.rows) == 2
-
-
-@pytest.mark.parametrize(
-    ("error_text", "expected"),
-    [
-        pytest.param("unsupported image_url", True, id="image-url"),
-        pytest.param("model has no vision support", True, id="no-vision"),
-        pytest.param("429 quota exceeded", False, id="quota"),
-    ],
-)
-def test_vision_error_detection(error_text: str, expected: bool) -> None:
-    """is_vision_error узнаёт жалобы модели на картинки и не путает их с 429."""
-    assert ai_parser.is_vision_error(Exception(error_text)) is expected

@@ -126,8 +126,10 @@ pytest tests -m "not integration" -q
 | `test_card_fields_separated_by_blank_line` | Поля карточки разделены пустой строкой. |
 | `test_note_context_editable_columns_exclude_id_and_screen` | Текстовая правка недоступна для ID и SCREEN. |
 | `test_note_context_reads_screen_file_id` | file_id скриншота читается из SCREEN. |
-| `test_note_card_buttons` | В карточке 5 кнопок; «✏️ Edit field» открывает меню колонок, а не ячейку. |
+| `test_note_card_buttons` | В карточке 5 кнопок; «✏️ Edit field» открывает меню колонок, а не ячейку; «⬅️ Back» ведёт по `Cb.note_back(note_id)` (без источника — Cancel). |
 | `test_edit_field_accepts_any_column_except_id_and_screen` | Меню правки показывает все колонки, кроме ID и SCREEN. |
+| `test_edit_prompt_for_source_lists_existing_sources` | Правка SOURCE выводит существующие источники в `<code>` (с экранированием) и не предлагает «-»; для URL — наоборот. |
+| `test_edit_cell_saves_or_rejects_value` | Ввод текста: `-` в SOURCE не очищает и просит имя (`EDIT_SOURCE_EMPTY`), новое имя с `:` пишется, `-` в COMMENT по-прежнему очищает. |
 
 ### Скриншот и поиск
 
@@ -195,6 +197,7 @@ pytest tests -m "not integration" -q
 | `test_empty_source_manage_screen` | Экран источника без заметок: заголовок и действия с подписями. |
 | `test_source_actions_show_all_notes` | «📖 Show all notes» выводит полные карточки источника. |
 | `test_notes_list_is_numbered_with_code_names` | Список заметок нумерован и даёт кнопки-номера. |
+| `test_source_with_colon_opens_notes_from_buttons` | Источник `Resepies: Breakfast`: номер из «🗂 Sources» открывает его заметки, кнопка-номер ведёт в карточку с именем источника в callback_data, а `Cb.note_back(note_id)` возвращает в тот же источник без обрезки имени. |
 | `test_notes_list_edit_source_button_starts_rename` | «✏️ Edit Source» запускает переименование. |
 | `test_source_actions_add_note_skips_source_choice` | «➕ Add note» пропускает выбор источника и сразу просит TITLE. |
 
@@ -245,9 +248,8 @@ async-клиент не годится. Сценарии собираются х
 
 | Тест | Проверяемое правило |
 | --- | --- |
-| `test_extract_json_accepts_wrapped_objects` | Строгий JSON читается и в обёртке ```` ```json ````, и с текстом вокруг объекта; результат сравнивается целиком со всеми ключами. |
-| `test_extract_json_rejects_garbage` | Без JSON-объекта — `AiDraftError` (параметризовано: текст вокруг, пустая строка, JSON-массив). |
-| `test_page_kind` | `http(s)://` — ссылка (разбираем страницу), остальное — текст (параметризовано). |
+| `test_extract_json_round_trip` | Строгий JSON читается и в обёртке ```` ```json ````, и с текстом вокруг объекта (сравнение целиком), а текст без объекта, пустая строка и JSON-массив — `AiDraftError` (один параметризованный тест). |
+| `test_vision_error_is_reported_only_for_photo` | Жалоба модели на картинку — `AiVisionError` только когда присланно фото; без фото — исходная ошибка провайдера. |
 | `test_link_page_falls_back_to_url` | Ссылка: заголовок и текст страницы идут в модель, при ошибке сети — сама ссылка. |
 | `test_parse_keeps_only_known_columns_and_file_id` | `fields` фильтруются строго по шапке листа, `file_id` фото уходит в черновик (SCREEN). |
 | `test_parse_accepts_legacy_reply_shapes` | Старые ответы модели (`extra_fields` и плоские ключи) по-прежнему разбираются. |
@@ -279,7 +281,6 @@ async-клиент не годится. Сценарии собираются х
 | `test_ai_note_edit_title_before_save` | «✏️ Edit title»: свой заголовок виден в предпросмотре и попадает в таблицу. |
 | `test_ai_note_broken_model_answer_is_reported` | Модель ответила без JSON — пользователь видит AI_FAILED, лист не тронут. |
 | `test_ai_note_photo_on_text_model_hints_vision` | Фото и модель без vision — подсказка указать Vision-модель в `AI_MODEL`, лист не тронут. |
-| `test_vision_error_detection` | `is_vision_error` узнаёт жалобы модели на картинки и не путает их с другими ошибками (параметризовано, включая `429`). |
 
 ---
 
