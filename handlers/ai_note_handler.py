@@ -71,13 +71,19 @@ NO_VALID_SOURCE = "⚠️ Source name must be non-empty and without ':' symbol."
 
 
 def ai_client() -> Any:
-    """Клиент модели из окружения; RuntimeError — AI-ключ не настроен."""
+    """
+    Синхронный клиент модели; RuntimeError — AI-ключ не настроен.
+
+    ``AiNoteParser.parse`` синхронный и уже выполняется в отдельном потоке
+    (``asyncio.to_thread``), поэтому async-клиент не нужен — ``AsyncOpenAI``
+    вернул бы корутину без ``.choices``.
+    """
     key = ai_api_key()
     if not key:
         raise RuntimeError("AI_API_KEY is not set.")
-    from openai import AsyncOpenAI
+    from openai import OpenAI
 
-    return AsyncOpenAI(api_key=key, base_url=ai_base_url())
+    return OpenAI(api_key=key, base_url=ai_base_url())
 
 
 def ai_fields(headers: list[str]) -> list[str]:

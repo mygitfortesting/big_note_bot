@@ -236,6 +236,8 @@ pytest tests -m "not integration" -q
 ## `tests/test_ai_note.py` — ✨ AI Note (черновик из скриншота/ссылки/текста)
 
 Клиент модели подменяется двойником (`ai_client` в самом файле), сеть не нужна.
+`ai_client()` собирается подменой `openai.OpenAI`: парсер синхронный, поэтому
+async-клиент не годится.
 
 ### Разбор ответа модели
 
@@ -258,6 +260,8 @@ pytest tests -m "not integration" -q
 | --- | --- |
 | `test_get_ai_prompt_reads_service_row` | `get_ai_prompt`: строка `AI_PROMT` по TITLE/SOURCE, текст из DESCRIPTION (иначе — пусто). |
 | `test_without_key_main_menu_still_works` | «✨ AI Note» есть в главном меню; без ключа бот работает, базовый URL — `https://openrouter.ai`, модель — `openrouter/free`. |
+| `test_ai_client_returns_sync_client` | `ai_client()` берёт синхронный `openai.OpenAI` (не `AsyncOpenAI`) и передаёт ему ключ и `AI_BASE_URL`: `parse` не получает корутину. |
+| `test_ai_client_requires_key` | Без `AI_API_KEY` клиент не создаётся — `RuntimeError`. |
 
 ### Сценарий
 

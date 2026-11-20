@@ -124,6 +124,42 @@ def test_without_key_main_menu_still_works(
 # --- Сервис разбора ---
 
 
+def test_ai_client_returns_sync_client(monkeypatch: pytest.MonkeyPatch) -> None:
+    """
+    ai_client() берёт синхронный ``OpenAI``, а не ``AsyncOpenAI``.
+
+    ``AiNoteParser.parse`` читает ``response.choices`` сразу после вызова
+    (он и так идёт в потоке): async-клиент вернул бы корутину —
+    ``AttributeError: 'coroutine' object has no attribute 'choices'``.
+    """
+    created: dict[str, Any] = {}
+
+    class _SyncClient:
+        """Подмена openai.OpenAI: запоминает аргументы конструктора."""
+
+        def __init__(self, **kwargs: Any) -> None:
+            created.update(kwargs)
+
+    import openai
+
+    monkeypatch.setattr(openai, "OpenAI", _SyncClient)
+    monkeypatch.setattr(ai_note_handler, "ai_api_key", lambda: "test-key")
+    monkeypatch.setattr(ai_note_handler, "ai_base_url", lambda: "https://ai")
+
+    client = ai_note_handler.ai_client()
+
+    assert isinstance(client, _SyncClient)
+    assert created == {"api_key": "test-key", "base_url": "https://ai"}
+
+
+def test_ai_client_requires_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Без AI_API_KEY клиент не создаётся — RuntimeError с понятным текстом."""
+    monkeypatch.setattr(ai_note_handler, "ai_api_key", lambda: "")
+
+    with pytest.raises(RuntimeError, match="AI_API_KEY"):
+        ai_note_handler.ai_client()
+
+
 @pytest.mark.parametrize(
     ("raw", "expected"),
     [
