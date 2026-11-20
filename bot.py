@@ -116,11 +116,16 @@ async def back_to_main(callback: types.CallbackQuery, state: FSMContext) -> None
 
 
 def register_routers() -> None:
-    """Порядок важен: общие команды -> заметки -> ✨ AI Note -> колонки."""
+    """
+    Порядок важен: общие команды ➔ ✨ AI Note ➔ заметки ➔ колонки.
+
+    ``ai_router`` подключается только здесь: его ``AiStates`` должны ловить
+    сообщения раньше общего текстового поиска в ``notes_handler``.
+    """
     dp.include_routers(
         router,
-        notes_handler.router,
         ai_note_handler.ai_router,
+        notes_handler.router,
         columns_handler.router,
     )
 

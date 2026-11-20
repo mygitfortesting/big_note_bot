@@ -9,7 +9,7 @@ Telegram-бот заметок (`Python 3.13`, `aiogram 3.x`, `gspread`).
 - После правки тестов указывать команду запуска (`pytest tests -m "not integration" -q`), не выполняя её.
 
 ## 2. ARCHITECTURE & MODULES
-- `bot.py` — команды `/start`, `/help`, `/table`, сборка роутеров и polling.
+- `bot.py` — команды `/start`, `/help`, `/table`, сборка роутеров (порядок: общие команды ➔ ✨ AI Note ➔ заметки ➔ колонки) и polling.
 - `config.py` — `.env`, `Dispatcher`, доступ к Google Sheets, `notes_sheet_name(user_id)` (`MY_NOTES` для админа, `Notes_{user_id}` для остальных), `setup_user_sheets`, настройки AI (`ai_api_key`, `ai_base_url` — по умолчанию `https://openrouter.ai`, `ai_model` — по умолчанию `openrouter/free`).
 - `services/sheets.py` — единственный модуль работы с `gspread` (кроме `config.py`): потокобезопасный `SheetCache` (TTL 300 с, ключ по `sheet.id`/`sheet.title`, фоллбэк на stale при `429`), `NoteRepository` (включая `get_ai_prompt` — правила из строки `AI_PROMT`), `ColumnService`. При промахе `locate` один раз перечитывает лист с сервера.
 - `services/ai_parser.py` — разбор сообщения в `AiNoteDraft` (`source`, `title`, `fields` — колонка → значение по актуальной шкале листа, `screen`): загрузка страницы по ссылке (`fetch_page`, таймаут 10 с, фоллбэк на URL), строгий JSON от модели (`extract_json`), схема полей в промпте из `field_headers`/`system_prompt` (без захардкоженных `DESCRIPTION`/`URL`, читает и старые `extra_fields`/плоские ключи), `draft_fields` — все заполненные поля + `SCREEN`, `is_vision_error`/`AiVisionError` — модель не умеет смотреть картинки. Клиент модели приходит извне (инъекция).

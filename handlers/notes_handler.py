@@ -8,6 +8,7 @@
 
 Модуль остаётся точкой входа пакета: он собирает общий ``router`` из
 роутеров мастера и источников и реэкспортирует публичные символы.
+``ai_router`` подключается только в ``bot.register_routers``.
 """
 
 from __future__ import annotations
@@ -19,7 +20,6 @@ from aiogram import F, Router, types
 from aiogram.filters import StateFilter
 from aiogram.fsm.context import FSMContext
 
-from handlers.ai_note_handler import ai_router
 from handlers.notes_common import (
     NON_EDITABLE_HEADERS,
     NoteContext,
@@ -64,12 +64,13 @@ logger = logging.getLogger(__name__)
 
 card_router = Router(name="notes_card")
 
-#: Общий роутер пакета: мастер ➔ источники ➔ карточка и поиск ➔ ✨ AI Note.
+#: Общий роутер пакета: мастер ➔ источники ➔ карточка и поиск.
+#: ✨ AI Note подключается только в ``bot.register_routers`` — до
+#: ``notes_handler.router``, чтобы ``AiStates`` перехватывались раньше поиска.
 router = Router(name="notes")
 router.include_router(wizard_router)
 router.include_router(sources_router)
 router.include_router(card_router)
-router.include_router(ai_router)
 
 
 # --- Главное меню ---

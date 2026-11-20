@@ -274,3 +274,11 @@ pytest tests -m "not integration" -q
 | `test_ai_note_broken_model_answer_is_reported` | Модель ответила без JSON — пользователь видит AI_FAILED, лист не тронут. |
 | `test_ai_note_photo_on_text_model_hints_vision` | Фото и модель без vision — подсказка указать Vision-модель в `AI_MODEL`, лист не тронут. |
 | `test_vision_error_detection` | `is_vision_error` узнаёт жалобы модели на картинки и не путает их с другими ошибками. |
+
+---
+
+## `tests/test_bot.py` — сборка приложения
+
+| Тест | Проверяемое правило |
+| --- | --- |
+| `test_register_routers_wiring` | `register_routers()` вызывается без ошибок: каждый роутер подключён ровно один раз (в т.ч. `ai_router` не дублируется внутри `notes_handler.router`), `ai_router` стоит перед роутером заметок (AiStates — раньше поиска), а повторный вызов бросает `RuntimeError` и не раздувает список подроутеров. |
