@@ -124,7 +124,7 @@ WIZARD_FIELD_WRONG_TYPE = (
 
 EDIT_FIELD_PROMPT = (
     "✏️ <b>{name}</b>\n\n"
-    "Column: <b>{field}</b>{current}\n"
+    "Column: <b>{field}\n</b>{current}\n"
     "Send the new value (or <code>-</code> to clear it):"
 )
 #: Текущее значение ячейки: копируется тапом по <code>.
