@@ -17,6 +17,7 @@ import logging
 from typing import Any
 
 from aiogram import F, Router, types
+from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 
@@ -31,7 +32,7 @@ from services.ai_parser import (
     draft_fields,
     field_headers,
 )
-from services.callback import Cb
+from services.callback import Cb, Cmd
 from services.sheets import (
     ID_HEADER,
     NoteRepository,
@@ -317,6 +318,12 @@ async def cb_ai_note(callback: types.CallbackQuery, state: FSMContext) -> None:
     """«✨ AI Note»: приём сообщения или объяснение, что ключ не настроен."""
     await ack_callback(callback)
     await ask_ai_note(callback, state)
+
+
+@ai_router.message(Command(Cmd.AI_NOTE))
+async def cmd_ai_note(message: types.Message, state: FSMContext) -> None:
+    """«/ai_note»: тот же вход в сценарий, что и кнопка «✨ AI Note»."""
+    await ask_ai_note(message, state)
 
 
 @ai_router.message(AiStates.wait_message, F.text | F.photo)

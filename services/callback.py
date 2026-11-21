@@ -23,8 +23,8 @@ class Cmd:
     HELP = "help"
     ADD_NOTE = "add_note"
     ADD_SOURCE = "add_source"
+    AI_NOTE = "ai_note"
     TABLE = "table"
-    #: «/refresh» — сброс кэша листа и перечитывание свежих данных.
     REFRESH = "refresh"
 
 

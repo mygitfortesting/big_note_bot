@@ -413,6 +413,26 @@ def test_ai_note_without_key_explains_setup(
     assert state.state is None
 
 
+@pytest.mark.parametrize("has_key", [True, False], ids=["with-key", "without-key"])
+def test_cmd_ai_note_starts_same_scenario(
+    use_repo: UseRepo, monkeypatch: pytest.MonkeyPatch, has_key: bool
+) -> None:
+    """/ai_note входит в ✨ AI Note так же, как кнопка (или объясняет ключ)."""
+    key = "test-key" if has_key else ""
+    monkeypatch.setattr(ai_note_handler, "ai_api_key", lambda: key)
+    repo, _ = repo_for([note_row("1", "Blog", "a")])
+    use_repo(repo)
+    state = FakeState()
+    command_message = message("/ai_note", user_id=1)
+
+    asyncio.run(ai_note_handler.cmd_ai_note(command_message, state))
+
+    expected = buttons.AI_NOTE_PROMPT if has_key else buttons.AI_NO_KEY
+    assert expected in command_message.sent[-1]["text"]
+    expected_state = ai_note_handler.AiStates.wait_message if has_key else None
+    assert state.state == expected_state
+
+
 def test_ai_note_draft_from_text_then_save(
     use_repo: UseRepo, monkeypatch: pytest.MonkeyPatch, ai_client: UseAi
 ) -> None:
