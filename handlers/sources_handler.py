@@ -42,37 +42,6 @@ logger = logging.getLogger(__name__)
 sources_router = Router(name="sources")
 
 
-async def send_notes_list(
-    event: types.Message | types.CallbackQuery,
-    repo: NoteRepository,
-    source: str,
-    notes: list[Note],
-    state: FSMContext | None = None,
-) -> None:
-    """Список заметок источника: номера, заголовки и кнопки-номера."""
-    source_index = await _index_of_source(source, state) if state else None
-    if not notes:
-        # Пустой источник — та же клавиатура, что и у непустого списка:
-        # только кнопки-номера не рисуются, остальные действия те же.
-        await show_main_menu(
-            event,
-            with_min_width(buttons.NO_NOTES.format(source=escape_html(source))),
-            keyboards.notes([], source, source_index=source_index),
-        )
-        return
-    headers = repo.headers()
-    lines = [
-        f"{index}. <code>{escape_html(note_title(note, headers))}</code>"
-        for index, note in enumerate(notes, start=1)
-    ]
-    header = buttons.NOTES_PROMPT.format(source=escape_html(source), count=len(notes))
-    text = header + "\n\n" + "\n".join(lines)
-    markup = keyboards.notes(
-        [note.note_id for note in notes], source, source_index=source_index
-    )
-    await send_parts(event, text, markup)
-
-
 async def show_sources_manage(
     event: types.Message | types.CallbackQuery,
     state: FSMContext | None = None,
@@ -131,17 +100,6 @@ async def _remember_source_list(
     )
 
 
-async def _index_of_source(source: str, state: FSMContext) -> int | None:
-    """Индекс источника в сохранённом списке (для кнопок списка заметок)."""
-    data = await state.get_data()
-    sources = [str(item) for item in data.get("source_list") or []]
-    wanted = source.strip().lower()
-    for index, saved in enumerate(sources):
-        if saved.strip().lower() == wanted:
-            return index
-    return None
-
-
 async def _saved_source(
     callback: types.CallbackQuery, state: FSMContext, index: int
 ) -> tuple[str, int] | None:
@@ -172,13 +130,7 @@ async def _resolve_saved_source(
 
 @sources_router.callback_query(F.data.startswith(f"{Cb.NOTE_BACK}:"))
 async def cb_note_back(callback: types.CallbackQuery, state: FSMContext) -> None:
-    """«⬅️ Back» из карточки: список заметок источника найденной заметки.
-
-    Источник берётся из строки таблицы по ``note_id``, а не из
-    callback_data: в имени может быть ``:`` (``Resepies: Breakfast``),
-    и передавать его сырым в кнопку нельзя — разбор ``prefix:<source>``
-    вернул бы обрезанное имя и пустой экран.
-    """
+    """«⬅️ Back» из карточки: список заметок источника найденной заметки."""
     await ack_callback(callback)
     ref = Cb.parse_note(callback.data or "", Cb.NOTE_BACK)
     repo = repo_of(callback)
@@ -199,9 +151,7 @@ async def cb_note_back(callback: types.CallbackQuery, state: FSMContext) -> None
         return
     await state.clear()
     try:
-        await _remember_source_list(state, repo)
-        notes = await asyncio.to_thread(repo.list_by_source, source)
-        await send_notes_list(callback, repo, source, notes, state)
+        await show_source_screen(callback, state, repo, source)
     except Exception as e:
         await send_error_message(callback, e)
 
@@ -217,12 +167,7 @@ async def cb_source_notes(callback: types.CallbackQuery, state: FSMContext) -> N
     repo = repo_of(callback)
     if repo is None:
         return
-    try:
-        await _remember_source_list(state, repo)
-        notes = await asyncio.to_thread(repo.list_by_source, source)
-        await send_notes_list(callback, repo, source, notes, state)
-    except Exception as e:
-        await send_error_message(callback, e)
+    await show_source_screen(callback, state, repo, source)
 
 
 @sources_router.message(NoteStates.wait_source, F.text)
@@ -264,6 +209,50 @@ async def cb_manage_sources(callback: types.CallbackQuery, state: FSMContext) ->
     await show_sources_manage(callback, state)
 
 
+async def show_source_screen(
+    event: types.Message | types.CallbackQuery,
+    state: FSMContext | None,
+    repo: NoteRepository,
+    source: str,
+) -> None:
+    """
+    Единый экран источника: заметки номерами и все действия над источником.
+
+    Один и тот же экран открывают номер в «🗂 Sources», «⬅️ Back» из карточки
+    заметки и возврат после переименования — без промежуточных списков.
+    Актуальный список источников перечитывается здесь: FSM может быть пустым
+    после рестарта или поиска, а в callback_data едет только номер.
+    """
+    try:
+        sources = list(await asyncio.to_thread(repo.list_sources))
+        notes = list(await asyncio.to_thread(repo.list_by_source, source))
+        headers = repo.headers()
+    except Exception as e:
+        await send_error_message(event, e)
+        return
+    if state is not None:
+        await state.update_data(source_list=sources)
+    index = _index_in(sources, source)
+    if index is None:
+        await show_main_menu(event, buttons.SOURCE_LOST, keyboards.back_to_main())
+        return
+    note_ids = [note.note_id for note in notes]
+    await show_main_menu(
+        event,
+        _source_screen_text(source, notes, headers),
+        keyboards.source_actions(index, note_ids, source),
+    )
+
+
+def _index_in(sources: list[str], source: str) -> int | None:
+    """Номер источника в списке (без учёта регистра и пробелов)."""
+    wanted = source.strip().lower()
+    for index, saved in enumerate(sources):
+        if saved.strip().lower() == wanted:
+            return index
+    return None
+
+
 def _source_screen_text(source: str, notes: list[Note], headers: list[str]) -> str:
     """Заголовок источника, нумерованный список заметок и «Choose an action»."""
     head = buttons.SOURCE_MANAGE_PROMPT.format(source=escape_html(source))
@@ -283,21 +272,11 @@ async def cb_source_manage(callback: types.CallbackQuery, state: FSMContext) -> 
     resolved = await _resolve_saved_source(callback, state, Cb.SRC_MANAGE)
     if resolved is None:
         return
-    index, source, _ = resolved
+    _, source, _ = resolved
     repo = repo_of(callback)
     if repo is None:
         return
-    try:
-        notes = await asyncio.to_thread(repo.list_by_source, source)
-        headers = repo.headers()
-    except Exception as e:
-        await send_error_message(callback, e)
-        return
-    await show_main_menu(
-        callback,
-        _source_screen_text(source, notes, headers),
-        keyboards.source_actions(index, [note.note_id for note in notes], source),
-    )
+    await show_source_screen(callback, state, repo, source)
 
 
 @sources_router.callback_query(F.data.startswith(f"{Cb.SRC_SHOW_NOTES}:"))
@@ -313,11 +292,7 @@ async def cb_source_show_notes(
     repo = repo_of(callback)
     if repo is None:
         return
-    try:
-        notes = await asyncio.to_thread(repo.list_by_source, source)
-        await send_notes_list(callback, repo, source, notes, state)
-    except Exception as e:
-        await send_error_message(callback, e)
+    await show_source_screen(callback, state, repo, source)
 
 
 def _notes_digest(repo: NoteRepository, notes: list[Note]) -> list[str]:
@@ -411,14 +386,13 @@ async def _go_to_renamed_source(
     state: FSMContext,
     new_source: str,
 ) -> None:
-    """Список источников в FSM + экран заметок нового имени (без лишнего экрана)."""
+    """Список источников в FSM + единый экран источника нового имени."""
     counts = await asyncio.to_thread(repo.list_sources_with_counts)
     await _remember_source_list(state, repo, counts)
     if not new_source or not _source_note_count(new_source, counts):
         await show_sources_manage(event=message, repo=repo, state=state)
         return
-    notes = await asyncio.to_thread(repo.list_by_source, new_source)
-    await send_notes_list(message, repo, new_source, notes, state)
+    await show_source_screen(message, state, repo, new_source)
 
 
 @sources_router.message(NoteStates.wait_source_name, F.text)
@@ -503,7 +477,7 @@ async def cb_source_delete_confirm(
 
 
 __all__ = [
-    "send_notes_list",
+    "show_source_screen",
     "show_sources_manage",
     "sources_router",
 ]

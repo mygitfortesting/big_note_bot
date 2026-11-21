@@ -390,26 +390,6 @@ def _numbered_note_button(
     return _button(str(position), Cb.note_view(note_id, source))
 
 
-def notes(
-    note_ids: Sequence[str], source: str, source_index: int | None = None
-) -> InlineKeyboardMarkup:
-    """
-    Список заметок источника: кнопки-номера 1..N открывают карточку.
-
-    В тексте кнопки — порядковый номер (как в пронумерованном списке),
-    в ``callback_data`` — настоящий ID заметки. Если ``source_index``
-    известен, под номерами появляются «➕ Add Note» и «✏️ Edit Source» для
-    этого источника (в callback_data снова только номер — 64 байта хватит).
-    """
-    rows = _note_number_rows(note_ids, source)
-    if source_index is not None:
-        add_button = source_add_note_button(source_index, buttons.ADD_NOTE_ROW)
-        edit_button = source_rename_button(source_index, buttons.EDIT_SOURCE)
-        rows.append([add_button, edit_button])
-    rows.append([back_to_sources_button(), to_main_row()])
-    return _markup(rows)
-
-
 def note_card(note_id: str, source: str) -> InlineKeyboardMarkup:
     """Клавиатура карточки заметки: правка поля, скриншот, удаление и навигация."""
     back_button = note_source_back_button(note_id) if source else cancel_row()
@@ -539,6 +519,11 @@ def columns_cancel() -> InlineKeyboardMarkup:
     return _markup([[cancel_row(), to_main_row()]])
 
 
+def search_results(note_ids: Sequence[str]) -> InlineKeyboardMarkup:
+    """Результаты поиска по TITLE: кнопки-номера и возврат в главное меню."""
+    return _markup([*_note_number_rows(note_ids, ""), [to_main_row()]])
+
+
 __all__ = [
     "PAGE_SIZE",
     "add_column_button",
@@ -574,10 +559,10 @@ __all__ = [
     "note_photo_button",
     "note_source_back_button",
     "note_view_back_button",
-    "notes",
     "note_wizard_step",
     "photo_cancel",
     "search_not_found",
+    "search_results",
     "source_actions",
     "source_add_note_button",
     "source_all_notes_button",

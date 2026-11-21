@@ -29,9 +29,6 @@ CONFIRM_DELETE = "✅ Yes, delete"
 #: Подписи действий над колонками — короче, чтобы влезали в ряд с меню.
 RENAME_COLUMN_SHORT = "✏️ Rename"
 DELETE_COLUMN_SHORT = "🗑 Delete"
-#: Кнопка в списке заметок источника — ярлык именно этого экрана.
-ADD_NOTE_ROW = "➕ Add Note"
-EDIT_SOURCE = "✏️ Edit Source"
 #: Экран источника: все заметки сразу с полным содержанием.
 SHOW_ALL_NOTES = "📖 Show all notes"
 

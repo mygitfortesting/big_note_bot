@@ -99,13 +99,21 @@ def test_sources_menu_numbers_and_opens_actions(use_repo: UseRepo) -> None:
 
 
 def test_source_actions_legacy_show_notes(use_repo: UseRepo) -> None:
-    """Старый callback «📂 Show notes» ведёт к списку заметок источника."""
+    """Старый callback «📂 Show notes» ведёт к единому экрану источника."""
     state = _open_sources(use_repo)
     show_callback = callback(Cb.src_show_notes(0))
     asyncio.run(sources_handler.cb_source_show_notes(show_callback, state))
 
     sent = show_callback.message.sent[-1]
-    assert "2 note(s)" in sent["text"]
+    assert all(
+        part in sent["text"]
+        for part in (
+            "<b>Blog</b>",
+            "1. <code>a</code>",
+            "2. <code>b</code>",
+            "Choose an action:",
+        )
+    )
     texts = [button.text for button in flat(sent["reply_markup"])]
     assert texts[:2] == ["1", "2"]
 
@@ -190,7 +198,7 @@ def test_source_actions_show_all_notes(use_repo: UseRepo) -> None:
 
 
 def test_notes_list_is_numbered_with_code_names(use_repo: UseRepo) -> None:
-    """Список заметок: «1. <code>Заголовок</code>» и кнопки-номера."""
+    """Legacy «src_notes» открывает тот же единый экран источника."""
     repo, _ = repo_for(
         [note_row("a1", "Blog", "FlexiTech"), note_row("b2", "Blog", "Yandex")]
     )
@@ -200,10 +208,7 @@ def test_notes_list_is_numbered_with_code_names(use_repo: UseRepo) -> None:
     asyncio.run(sources_handler.cb_source_notes(notes_callback, FakeState()))
 
     sent = notes_callback.message.sent[-1]
-    assert all(
-        part in sent["text"]
-        for part in ("1. <code>FlexiTech</code>", "2. <code>Yandex</code>")
-    )
+    assert "<b>Blog</b>" in sent["text"]
     keyboard = flat(sent["reply_markup"])
     texts = [button.text for button in keyboard]
     datas = [button.callback_data for button in keyboard]
@@ -212,8 +217,10 @@ def test_notes_list_is_numbered_with_code_names(use_repo: UseRepo) -> None:
         data in datas
         for data in (Cb.note_view("a1", "Blog"), Cb.note_view("b2", "Blog"))
     )
-    assert not any(text.startswith("📝") for text in texts)
-    assert all(label in texts for label in (buttons.ADD_NOTE_ROW, buttons.EDIT_SOURCE))
+    assert all(
+        label in texts
+        for label in (buttons.ADD_NOTE, buttons.RENAME_SOURCE, buttons.DELETE_SOURCE)
+    )
 
 
 def test_source_with_colon_opens_notes_from_buttons(use_repo: UseRepo) -> None:
@@ -250,8 +257,63 @@ def test_source_with_colon_opens_notes_from_buttons(use_repo: UseRepo) -> None:
     assert "Other" not in back_sent["text"]
 
 
+def test_source_screen_same_from_menu_and_note_back(use_repo: UseRepo) -> None:
+    """«🗂 Sources» и «⬅️ Back» из карточки открывают один и тот же экран.
+
+    FSM после карточки (рестарт/поиск) пуст — список источников и номер
+    всё равно берутся из таблицы, а `source_list` заполняется заново.
+    """
+    repo, _ = repo_for([note_row("1", "Blog", "a"), note_row("2", "YouTube", "b")])
+    use_repo(repo)
+    expected_texts = [
+        "1",
+        buttons.SHOW_ALL_NOTES,
+        buttons.ADD_NOTE,
+        buttons.RENAME_SOURCE,
+        buttons.DELETE_SOURCE,
+        buttons.BACK,
+        buttons.TO_MAIN,
+    ]
+
+    from_menu = FakeState()
+    asyncio.run(sources_handler.cb_manage_sources(callback(Cb.MENU_SOURCES), from_menu))
+    manage_callback = callback(Cb.src_manage(1))
+    asyncio.run(sources_handler.cb_source_manage(manage_callback, from_menu))
+    from_menu_sent = manage_callback.message.sent[-1]
+
+    # «⬅️ Back» из карточки заметки YouTube, FSM пуст (как после рестарта).
+    empty_state = FakeState()
+    back_callback = callback(Cb.note_back("2"))
+    asyncio.run(sources_handler.cb_note_back(back_callback, empty_state))
+    back_sent = back_callback.message.sent[-1]
+
+    for sent, state in (
+        (from_menu_sent, from_menu),
+        (back_sent, empty_state),
+    ):
+        assert all(
+            part in sent["text"]
+            for part in ("<b>YouTube</b>", "1. <code>b</code>", "Choose an action:")
+        )
+        keyboard = flat(sent["reply_markup"])
+        assert [button.text for button in keyboard] == expected_texts
+        datas = [button.callback_data for button in keyboard]
+        assert all(
+            data in datas
+            for data in (
+                Cb.note_view("2", "YouTube"),
+                Cb.src_all_notes(1),
+                Cb.src_new_note(1),
+                Cb.src_rename(1),
+                Cb.src_del(1),
+            )
+        )
+        assert state.data["source_list"] == ["Blog", "YouTube"]
+    assert from_menu_sent["text"] == back_sent["text"]
+
+
 def test_notes_list_edit_source_button_starts_rename(use_repo: UseRepo) -> None:
-    """«✏️ Edit Source» из списка заметок запускает переименование."""
+    """«✏️ Edit source» из единого экрана запускает переименование."""
     repo, _ = repo_for([note_row("a1", "Blog", "FlexiTech")])
     use_repo(repo)
     state = FakeState()
@@ -344,12 +406,12 @@ def test_sources_menu_rename_flow(use_repo: UseRepo) -> None:
     )
     data = rows_by_header(sheet)
     assert {row[SOURCE_HEADER] for row in data} == {"Podcast"}
-    # Отчёт и список заметок — всего 2 сообщения (без общего списка источников).
+    # Отчёт и единый экран источника — всего 2 сообщения (без списка источников).
     assert len(rename_message.sent) == 2
-    assert "1. Podcast (2)" not in rename_message.sent[-1]["text"]
-    assert any(
-        "<b>Podcast</b> — 2 note(s):" in item["text"] for item in rename_message.sent
-    )
+    screen_text = rename_message.sent[-1]["text"]
+    assert "1. Podcast (2)" not in screen_text
+    assert "<b>Podcast</b>" in screen_text
+    assert "Choose an action:" in screen_text
     assert state.data["source_list"] == ["Podcast"] and state.state is None
 
 

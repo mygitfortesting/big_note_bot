@@ -31,6 +31,7 @@ from handlers.notes_common import (
     write_note_cell,
 )
 from handlers.sources_handler import (
+    show_source_screen,
     show_sources_manage,
     sources_router,
 )
@@ -383,8 +384,6 @@ async def cb_note_delete_ask(callback: types.CallbackQuery) -> None:
 @card_router.callback_query(F.data.startswith(f"{Cb.NOTE_DEL}:"))
 async def cb_note_delete(callback: types.CallbackQuery, state: FSMContext) -> None:
     """«🗑 Delete note»: удаляет строку заметки и возвращает к источнику."""
-    from handlers.sources_handler import send_notes_list as send_list
-
     await ack_callback(callback)
     await state.clear()
     ref = Cb.parse_note(callback.data or "", Cb.NOTE_DEL)
@@ -407,12 +406,7 @@ async def cb_note_delete(callback: types.CallbackQuery, state: FSMContext) -> No
     if not source:
         await send_main_menu(callback)
         return
-    try:
-        notes = await asyncio.to_thread(repo.list_by_source, source)
-        await send_list(callback, repo, source, notes, state)
-    except Exception as e:
-        # Строка уже удалена: падение списка не должно оставлять бота молчащим
-        await send_error_message(callback, e)
+    await show_source_screen(callback, state, repo, source)
 
 
 # --- Поиск заметки по заголовку (текстом в чат) ---
@@ -456,7 +450,7 @@ async def search_by_title(message: types.Message) -> None:
     ]
     header = buttons.SEARCH_RESULTS.format(count=len(found))
     text = header + "\n\n" + "\n".join(lines)
-    markup = keyboards.notes([note.note_id for note in found], "")
+    markup = keyboards.search_results([note.note_id for note in found])
     await send_parts(message, text, markup)
 
 

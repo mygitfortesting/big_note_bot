@@ -15,7 +15,7 @@ Telegram-бот заметок: `Python 3.13`, `aiogram 3.x`, `gspread`, `openai
 - `services/buttons.py`, `services/keyboards.py` — тексты и `InlineKeyboardMarkup` (`_rows` проверяет `per_row >= 1`).
 - `services/telegram_io.py` — вывод в Telegram (`show_main_menu`, `status_message`, `send_parts`, `send_error_message`, `alert`) и `user_lock(user_id)`.
 - `services/text_utils.py` — `escape_html`, `split_messages`, `note_card_text`, `with_min_width`.
-- `handlers/` — `notes_handler.py` (публичный API пакета, карточка, поиск, удаление), `wizard_handler.py` (мастер заметки: `start_add_note` = `/add_note` + `➕ Add note`, `start_add_source` = `/add_source` + `🆕 Add source`), `sources_handler.py` (источники), `ai_note_handler.py` (✨ AI Note: `start_ai_note` = `/ai_note` + `✨ AI Note`, `AiStates`, черновик, сохранение), `columns_handler.py` (колонки), `notes_common.py` (`NoteStates`, `NoteContext`, хелперы).
+- `handlers/` — `notes_handler.py` (публичный API пакета, карточка, поиск, удаление), `wizard_handler.py` (мастер заметки: `start_add_note` = `/add_note` + `➕ Add note`, `start_add_source` = `/add_source` + `🆕 Add source`), `sources_handler.py` (источники: единый `show_source_screen` для номера в «🗂 Sources», `⬅️ Back` и переименования), `ai_note_handler.py` (✨ AI Note: `start_ai_note` = `/ai_note` + `✨ AI Note`, `AiStates`, черновик, сохранение), `columns_handler.py` (колонки), `notes_common.py` (`NoteStates`, `NoteContext`, хелперы).
 - Порядок роутеров: общие команды ➔ ✨ AI Note ➔ заметки ➔ колонки. `ai_router` подключается только в `bot.register_routers`.
 - Парные точки входа (слэш-команда + inline-кнопка) — один хендлер с двумя декораторами и `event: types.Message | types.CallbackQuery`; для callback — `await ack_callback(event)` в начале. Не объединять `cb_add_ai_source` (у него своё состояние `AiStates.wait_message`).
 
@@ -27,6 +27,7 @@ Telegram-бот заметок: `Python 3.13`, `aiogram 3.x`, `gspread`, `openai
 - Любая правка ячейки показывает текущее значение (`buttons.EDIT_FIELD_CURRENT`, `Current: <code>...</code>`) через `NoteContext.current_value`; пустая ячейка и `-`/`—` строку не выводят.
 - В `SCREEN` хранится только `file_id` фото; карточка показывает лишь заполненные поля (без пустых, `-`, `—`, `ID`, `SCREEN`).
 - Удаление заметки — через подтверждение (`Cb.NOTE_DEL_ASK` ➔ `Cb.NOTE_DEL`).
+- Экран источника один (`keyboards.source_actions`: `📖 Show all notes`, `➕ Add note`, `✏️ Edit source`, `🗑 Delete source`); его открывают номер в «🗂 Sources», `⬅️ Back` из карточки и переименование. Список источников берётся из таблицы, а не только из FSM (`source_list` дописывается при показе).
 - Кэш: любая запись через бота его инвалидирует; ручные правки видны только после `🔄 Sync` / `/refresh` (`invalidate_cache` + прогрев).
 
 ## 4. ✨ AI Note

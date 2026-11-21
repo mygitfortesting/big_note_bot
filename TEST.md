@@ -195,19 +195,20 @@ pytest tests -m "not integration" -q
 | Тест | Проверяемое правило |
 | --- | --- |
 | `test_new_source_is_added_as_blank_source` | Источник сохраняется сразу болванкой без ID и TITLE. |
-| `test_sources_menu_numbers_and_opens_actions` | «🗂 Sources» нумерует источники и открывает действия. |
+| `test_sources_menu_numbers_and_opens_actions` | «🗂 Sources» нумерует источники и открывает единый экран источника (заметки номерами + действия). |
 | `test_source_actions_legacy_show_notes` | Старый callback «📂 Show notes» ведёт к списку заметок. |
 | `test_empty_source_manage_screen` | Экран источника без заметок: заголовок и действия с подписями. |
 | `test_source_actions_show_all_notes` | «📖 Show all notes» выводит полные карточки источника. |
-| `test_notes_list_is_numbered_with_code_names` | Список заметок нумерован и даёт кнопки-номера. |
+| `test_notes_list_is_numbered_with_code_names` | Legacy `src_notes:<source>` открывает тот же единый экран: кнопки-номера и полный набор действий (`Show all notes`, `Add note`, `Edit source`, `Delete source`). |
 | `test_source_with_colon_opens_notes_from_buttons` | Источник `Resepies: Breakfast`: номер из «🗂 Sources» открывает его заметки, кнопка-номер ведёт в карточку с именем источника в callback_data, а `Cb.note_back(note_id)` возвращает в тот же источник без обрезки имени. |
-| `test_notes_list_edit_source_button_starts_rename` | «✏️ Edit Source» запускает переименование. |
+| `test_notes_list_edit_source_button_starts_rename` | «✏️ Edit source» с единого экрана запускает переименование. |
 | `test_source_actions_add_note_skips_source_choice` | «➕ Add note» пропускает выбор источника и сразу просит TITLE. |
 
 ### Устаревший индекс
 
 | Тест | Проверяемое правило |
 | --- | --- |
+| `test_source_screen_same_from_menu_and_note_back` | «🗂 Sources» и «⬅️ Back» из карточки (даже при пустом FSMС после рестарта/поиска) открывают один и тот же экран: полный набор кнопок и `source_list` в FSMContext. |
 | `test_saved_source_alerts_on_invalid_index` | Индекс вне сохранённого списка (`[]`, `["Blog"]`, `["Blog", "News"]`) — alert SOURCE_LOST без падения. |
 
 ### Переименование и удаление
