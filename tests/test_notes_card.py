@@ -220,6 +220,47 @@ def test_edit_prompt_for_source_lists_existing_sources(
 
 
 @pytest.mark.parametrize(
+    ("field", "value", "expected", "absent"),
+    [
+        pytest.param(
+            "URL",
+            "https://x.test/a?b=1",
+            ["Current: <code>https://x.test/a?b=1</code>"],
+            [],
+            id="filled-value",
+        ),
+        pytest.param(
+            "URL",
+            "<b>raw</b>",
+            ["Current: <code>&lt;b&gt;raw&lt;/b&gt;</code>"],
+            ["<code><b>raw</b></code>"],
+            id="escaped-value",
+        ),
+        pytest.param("URL", "", ["Column: <b>URL</b>"], ["Current:"], id="empty"),
+        pytest.param("URL", "-", ["Send the new value"], ["Current:"], id="dash"),
+    ],
+)
+def test_edit_prompt_shows_current_value(
+    use_repo: UseRepo, field: str, value: str, expected: list[str], absent: list[str]
+) -> None:
+    """Текущее значение ячейки показывается в <code>, пустая/«-» — не показывается."""
+    row = note_row("a1", "Blog", "Post")
+    row[NOTES_HEADERS.index(field)] = value
+    repo, _ = repo_for([row])
+    use_repo(repo)
+    state = FakeState()
+    col_index = NOTES_HEADERS.index(field) + 1
+    edit_callback = callback(Cb.note_edit_cell("a1", col_index))
+
+    asyncio.run(notes_handler.cb_edit_cell(edit_callback, state))
+
+    text = edit_callback.message.sent[-1]["text"]
+    assert all(part in text for part in expected)
+    assert all(part not in text for part in absent)
+    assert state.state == notes_handler.NoteStates.wait_value
+
+
+@pytest.mark.parametrize(
     ("field", "attempt", "expected", "stored"),
     [
         pytest.param(

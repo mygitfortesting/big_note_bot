@@ -124,13 +124,17 @@ WIZARD_FIELD_WRONG_TYPE = (
 
 EDIT_FIELD_PROMPT = (
     "✏️ <b>{name}</b>\n\n"
-    "Column: <b>{field}</b>\n"
+    "Column: <b>{field}</b>{current}\n"
     "Send the new value (or <code>-</code> to clear it):"
 )
+#: Текущее значение ячейки: копируется тапом по <code>.
+EDIT_FIELD_CURRENT = "\nCurrent: <code>{current}</code>"
 
 #: Правка SOURCE: пустым источник быть не может, поэтому вместо «-» — список.
 EDIT_SOURCE_PROMPT = (
-    "✏️ <b>{name}</b>\n\nColumn: <b>{field}</b>\nSend the new source name{sources}"
+    "✏️ <b>{name}</b>\n\n"
+    "Column: <b>{field}</b>{current}\n"
+    "Send the new source name{sources}"
 )
 #: Блок существующих источников: копируется тапом по <code>.
 EDIT_SOURCE_LIST = "\n\nExisting sources:\n{sources}"

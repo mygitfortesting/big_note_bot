@@ -130,6 +130,7 @@ pytest tests -m "not integration" -q
 | `test_note_card_buttons` | В карточке 5 кнопок; «✏️ Edit field» открывает меню колонок, а не ячейку; «⬅️ Back» ведёт по `Cb.note_back(note_id)` (без источника — Cancel). |
 | `test_edit_field_accepts_any_column_except_id_and_screen` | Меню правки показывает все колонки, кроме ID и SCREEN. |
 | `test_edit_prompt_for_source_lists_existing_sources` | Правка SOURCE выводит существующие источники в `<code>` (с экранированием) и не предлагает «-»; для URL — наоборот. |
+| `test_edit_prompt_shows_current_value` | Текущее значение ячейки выводится как `Current: <code>...</code>` с экранированием; для пустой ячейки и `-` строка не показывается. |
 | `test_edit_cell_saves_or_rejects_value` | Ввод текста: `-` в SOURCE не очищает и просит имя (`EDIT_SOURCE_EMPTY`), новое имя с `:` пишется, `-` в COMMENT по-прежнему очищает. |
 
 ### Скриншот и поиск
@@ -257,7 +258,7 @@ async-клиент не годится. Сценарии собираются х
 | `test_parse_keeps_only_known_columns_and_file_id` | `fields` фильтруются строго по шапке листа, `file_id` фото уходит в черновик (SCREEN). |
 | `test_parse_accepts_legacy_reply_shapes` | Старые ответы модели (`extra_fields` и плоские ключи) по-прежнему разбираются. |
 | `test_parse_sends_photo_as_image_url` | Фото передаётся как `image_url` (`data:image/jpeg;base64,...`). |
-| `test_system_prompt_contains_columns_schema` | Схема `fields` в промпте строится из колонок листа, плюс правила `AI_PROMT` и источники. |
+| `test_system_prompt_contains_columns_schema` | Схема `fields` в промпте строится из колонок листа, плюс правила `AI_PROMT`, источники и инструкция писать на русском (бренды/ссылки/цифры не переводятся). |
 | `test_field_headers_follow_current_table_columns` | `field_headers`: только заполняемые колонки, скриншот исключается по позиции. |
 | `test_draft_fields_skip_service_columns` | `draft_fields`: все заполненные поля черновика + SCREEN, без служебных колонок. |
 

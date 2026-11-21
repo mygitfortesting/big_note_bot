@@ -347,6 +347,8 @@ def test_system_prompt_contains_columns_schema(ai_client: UseAi) -> None:
 
     assert AI_PROMPT_HEADER in system and schema in system
     assert all(part in system for part in ("Always use $", "Blog", "SALARY"))
+    # Язык по умолчанию — русский; правила таблицы могут его переопределить.
+    assert "Russian" in system and "brand or technology names" in system
     assert "extra_fields" not in system
 
 

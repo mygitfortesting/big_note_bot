@@ -50,6 +50,13 @@ RAW_PREVIEW_LIMIT = 150
 #: Заголовок секции кастомных правил в системном промпте.
 AI_PROMPT_HEADER = "CUSTOM RULES FROM THE USER TABLE:"
 
+#: Язык заметок по умолчанию: правила таблицы (``AI_PROMT``) важнее.
+DEFAULT_LANGUAGE = (
+    "Write title and all text field values in Russian by default, "
+    "unless the custom rules below say otherwise. Keep links, contacts, "
+    "numbers and original brand or technology names untranslated."
+)
+
 #: Таймаут загрузки страницы по ссылке, секунды.
 PAGE_TIMEOUT = 10.0
 #: Сколько символов страницы отдаём модели: остальное всё равно не нужно.
@@ -167,6 +174,7 @@ def system_prompt(
         "Use fields only for these columns: "
         + (", ".join(columns) if columns else "(none)"),
         "Leave a field out when the message has no value for it.",
+        DEFAULT_LANGUAGE,
     ]
     if sources:
         lines.append("Existing sources: " + ", ".join(sources))

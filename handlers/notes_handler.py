@@ -162,6 +162,13 @@ def _is_source_field(field: str) -> bool:
     return field.strip().upper() == SOURCE_HEADER
 
 
+def _current_text(current: str) -> str:
+    """Строка «Current: <code>...</code>» или пусто, если ячейка пустая."""
+    if not current:
+        return ""
+    return buttons.EDIT_FIELD_CURRENT.format(current=escape_html(current))
+
+
 def _source_list_text(sources: list[str]) -> str:
     """Блок с существующими источниками в ``<code>...</code>`` или пустая строка."""
     if not sources:
@@ -173,8 +180,8 @@ def _source_list_text(sources: list[str]) -> str:
     return buttons.EDIT_SOURCE_LIST.format(sources=items)
 
 
-async def _source_prompt(repo: NoteRepository, ctx: NoteContext) -> str:
-    """Запрос нового значения SOURCE с подсказкой из существующих источников."""
+async def _source_prompt(repo: NoteRepository, ctx: NoteContext, col_index: int) -> str:
+    """Запрос нового значения SOURCE с текущим значением и списком источников."""
     try:
         sources = await asyncio.to_thread(repo.list_sources)
     except Exception as e:
@@ -184,6 +191,7 @@ async def _source_prompt(repo: NoteRepository, ctx: NoteContext) -> str:
     return buttons.EDIT_SOURCE_PROMPT.format(
         name=escape_html(ctx.title),
         field=escape_html(SOURCE_HEADER),
+        current=_current_text(ctx.current_value(col_index)),
         sources=_source_list_text(sources),
     )
 
@@ -215,10 +223,12 @@ async def cb_edit_cell(callback: types.CallbackQuery, state: FSMContext) -> None
     await state.update_data(note_id=note_id, col_index=col_index)
     if _is_source_field(field):
         # Подсказка со списком: имя источника можно скопировать тапом.
-        prompt = await _source_prompt(repo, ctx)
+        prompt = await _source_prompt(repo, ctx, col_index)
     else:
         prompt = buttons.EDIT_FIELD_PROMPT.format(
-            name=escape_html(ctx.title), field=escape_html(field)
+            name=escape_html(ctx.title),
+            field=escape_html(field),
+            current=_current_text(ctx.current_value(col_index)),
         )
     await show_main_menu(
         callback,

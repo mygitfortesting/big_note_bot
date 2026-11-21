@@ -83,6 +83,15 @@ class NoteContext:
             f"<b>📝 {escape_html(self.title)}</b>"
         )
 
+    def cell_value(self, col_index: int) -> str:
+        """Текущее значение ячейки без пробелов (пусто — ячейки нет)."""
+        return self.note.value(col_index).strip()
+
+    def current_value(self, col_index: int) -> str:
+        """Заполненное значение для подсказки «Current: ...» (иначе пусто)."""
+        value = self.cell_value(col_index)
+        return "" if value in CLEAR_VALUES else value
+
 
 def repo_of(
     event: types.Message | types.CallbackQuery,
