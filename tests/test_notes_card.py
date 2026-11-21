@@ -183,7 +183,11 @@ def test_edit_field_accepts_any_column_except_id_and_screen() -> None:
     [
         pytest.param(
             SOURCE_HEADER,
-            ["<code>YouTube</code>", "<code>&lt;script&gt;</code>"],
+            [
+                "<code>YouTube</code>",
+                "<code>&lt;script&gt;</code>",
+                "Current: <code>Blog</code>\n\nSend the new source name",
+            ],
             ["or <code>-</code>", "<script>"],
             id="source-lists-sources",
         ),
@@ -225,25 +229,43 @@ def test_edit_prompt_for_source_lists_existing_sources(
         pytest.param(
             "URL",
             "https://x.test/a?b=1",
-            ["Current: <code>https://x.test/a?b=1</code>"],
+            [
+                "Column: <b>URL</b>\n\n"
+                "Current: <code>https://x.test/a?b=1</code>\n\n"
+                "Send the new value"
+            ],
             [],
             id="filled-value",
         ),
         pytest.param(
             "URL",
             "<b>raw</b>",
-            ["Current: <code>&lt;b&gt;raw&lt;/b&gt;</code>"],
+            [
+                "Column: <b>URL</b>\n\n"
+                "Current: <code>&lt;b&gt;raw&lt;/b&gt;</code>\n\n"
+                "Send the new value"
+            ],
             ["<code><b>raw</b></code>"],
             id="escaped-value",
         ),
-        pytest.param("URL", "", ["Column: <b>URL</b>"], ["Current:"], id="empty"),
+        pytest.param(
+            "URL",
+            "",
+            ["Column: <b>URL</b>\n\nSend the new value"],
+            ["Current:"],
+            id="empty",
+        ),
         pytest.param("URL", "-", ["Send the new value"], ["Current:"], id="dash"),
     ],
 )
 def test_edit_prompt_shows_current_value(
     use_repo: UseRepo, field: str, value: str, expected: list[str], absent: list[str]
 ) -> None:
-    """Текущее значение ячейки показывается в <code>, пустая/«-» — не показывается."""
+    """Текущее значение ячейки показывается в <code>, пустая/«-» — не показывается.
+
+    Строки «Column:», «Current:» и «Send the new value» разделены пустой строкой
+    во всех вариантах подсказки, включая пустую ячейку и правку SOURCE.
+    """
     row = note_row("a1", "Blog", "Post")
     row[NOTES_HEADERS.index(field)] = value
     repo, _ = repo_for([row])
