@@ -8,6 +8,7 @@
 import asyncio
 import logging
 import threading
+from typing import cast
 
 from aiogram import F, Router, types
 from aiogram.filters import Command, CommandStart
@@ -176,16 +177,16 @@ async def sync_table(
 
 
 @router.message(Command(Cmd.REFRESH))
-async def cmd_refresh(message: types.Message, state: FSMContext) -> None:
-    """«/refresh»: сбросить кэш и перечитать таблицу."""
-    await sync_table(message, state)
-
-
 @router.callback_query(F.data == Cb.SYNC)
-async def cb_sync(callback: types.CallbackQuery, state: FSMContext) -> None:
-    """«🔄 Sync» в главном меню: то же, что /refresh."""
-    await _ack_and_hide(callback)
-    await sync_table(callback, state)
+async def sync_notes(
+    event: types.Message | types.CallbackQuery, state: FSMContext
+) -> None:
+    """«/refresh» и «🔄 Sync» в главном меню: одно и то же перечитывание."""
+    # Проверка по атрибуту, а не isinstance: тестовый двойник FakeCallback
+    # не наследуется от types.CallbackQuery, и isinstance вернул бы False.
+    if hasattr(event, "data"):
+        await _ack_and_hide(cast(types.CallbackQuery, event))
+    await sync_table(event, state)
 
 
 # --- Запуск ---

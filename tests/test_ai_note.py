@@ -88,7 +88,7 @@ def _use_ai_key(monkeypatch: pytest.MonkeyPatch, ai_client: UseAi) -> None:
 
 def _open_ai(state: FakeState) -> None:
     """Открывает экран ✨ AI Note у уже подменённого репозитория."""
-    asyncio.run(ai_note_handler.cb_ai_note(callback(Cb.AI_NOTE), state))
+    asyncio.run(ai_note_handler.start_ai_note(callback(Cb.AI_NOTE), state))
 
 
 def _setup_ai(
@@ -409,28 +409,33 @@ def test_ai_note_without_key_explains_setup(
     state = FakeState()
     trigger = callback(Cb.AI_NOTE)
 
-    asyncio.run(ai_note_handler.cb_ai_note(trigger, state))
+    asyncio.run(ai_note_handler.start_ai_note(trigger, state))
 
     assert trigger.message.sent[-1]["text"] == buttons.AI_NO_KEY
     assert state.state is None
 
 
 @pytest.mark.parametrize("has_key", [True, False], ids=["with-key", "without-key"])
-def test_cmd_ai_note_starts_same_scenario(
-    use_repo: UseRepo, monkeypatch: pytest.MonkeyPatch, has_key: bool
+@pytest.mark.parametrize("via_command", [True, False], ids=["command", "button"])
+def test_ai_note_entry_points_share_scenario(
+    use_repo: UseRepo,
+    monkeypatch: pytest.MonkeyPatch,
+    has_key: bool,
+    via_command: bool,
 ) -> None:
-    """/ai_note входит в ✨ AI Note так же, как кнопка (или объясняет ключ)."""
+    """«/ai_note» и «✨ AI Note» — один хендлер: один экран и одно состояние."""
     key = "test-key" if has_key else ""
     monkeypatch.setattr(ai_note_handler, "ai_api_key", lambda: key)
     repo, _ = repo_for([note_row("1", "Blog", "a")])
     use_repo(repo)
     state = FakeState()
-    command_message = message("/ai_note", user_id=1)
+    trigger = message("/ai_note", user_id=1) if via_command else callback(Cb.AI_NOTE)
 
-    asyncio.run(ai_note_handler.cmd_ai_note(command_message, state))
+    asyncio.run(ai_note_handler.start_ai_note(trigger, state))
 
+    sent = trigger.sent if via_command else trigger.message.sent
     expected = buttons.AI_NOTE_PROMPT if has_key else buttons.AI_NO_KEY
-    assert expected in command_message.sent[-1]["text"]
+    assert expected in sent[-1]["text"]
     expected_state = ai_note_handler.AiStates.wait_message if has_key else None
     assert state.state == expected_state
 

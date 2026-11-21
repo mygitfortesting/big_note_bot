@@ -108,29 +108,25 @@ async def ask_note_title(
 
 
 @wizard_router.message(Command(Cmd.ADD_NOTE))
-async def cmd_add_note(message: types.Message, state: FSMContext) -> None:
-    """/add_note: выбор источника (кнопки) или «➕ Новый источник»."""
-    await ask_note_source(message, state)
+@wizard_router.callback_query(F.data == Cb.NOTE_ADD)
+async def start_add_note(
+    event: types.Message | types.CallbackQuery, state: FSMContext
+) -> None:
+    """«/add_note» и «➕ Add note»: выбор источника (кнопки) или новый."""
+    if isinstance(event, types.CallbackQuery):
+        await ack_callback(event)
+    await ask_note_source(event, state)
 
 
 @wizard_router.message(Command(Cmd.ADD_SOURCE))
-async def cmd_add_source(message: types.Message, state: FSMContext) -> None:
-    """/add_source: имя нового источника, сразу затем — первая заметка."""
-    await ask_new_source(message, state)
-
-
-@wizard_router.callback_query(F.data == Cb.NOTE_ADD)
-async def cb_add_note(callback: types.CallbackQuery, state: FSMContext) -> None:
-    """«➕ Add note»: сначала кнопки существующих источников + «Новый источник»."""
-    await ack_callback(callback)
-    await ask_note_source(callback, state)
-
-
 @wizard_router.callback_query(F.data == Cb.SRC_ADD)
-async def cb_add_source(callback: types.CallbackQuery, state: FSMContext) -> None:
-    """«🗂 Add source»: ввод имени нового источника."""
-    await ack_callback(callback)
-    await ask_new_source(callback, state)
+async def start_add_source(
+    event: types.Message | types.CallbackQuery, state: FSMContext
+) -> None:
+    """«/add_source» и «🗂 Add source»: ввод имени нового источника."""
+    if isinstance(event, types.CallbackQuery):
+        await ack_callback(event)
+    await ask_new_source(event, state)
 
 
 @wizard_router.callback_query(F.data.startswith(f"{Cb.SRC_SELECT}:"))

@@ -313,17 +313,15 @@ async def ask_ai_note(
     )
 
 
-@ai_router.callback_query(F.data == Cb.AI_NOTE)
-async def cb_ai_note(callback: types.CallbackQuery, state: FSMContext) -> None:
-    """«✨ AI Note»: приём сообщения или объяснение, что ключ не настроен."""
-    await ack_callback(callback)
-    await ask_ai_note(callback, state)
-
-
 @ai_router.message(Command(Cmd.AI_NOTE))
-async def cmd_ai_note(message: types.Message, state: FSMContext) -> None:
-    """«/ai_note»: тот же вход в сценарий, что и кнопка «✨ AI Note»."""
-    await ask_ai_note(message, state)
+@ai_router.callback_query(F.data == Cb.AI_NOTE)
+async def start_ai_note(
+    event: types.Message | types.CallbackQuery, state: FSMContext
+) -> None:
+    """«/ai_note» и «✨ AI Note»: один вход, приём сообщения или отказ без ключа."""
+    if isinstance(event, types.CallbackQuery):
+        await ack_callback(event)
+    await ask_ai_note(event, state)
 
 
 @ai_router.message(AiStates.wait_message, F.text | F.photo)

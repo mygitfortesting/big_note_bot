@@ -7,7 +7,7 @@ Telegram-бот заметок: `Python 3.13`, `aiogram 3.x`, `gspread`, `openai
 - Правки точечные (in-place), только в запрошенных файлах. Не менять структуру папок, не трогать `.venv` и `.git`, не создавать временные скрипты.
 
 ## 2. Карта модулей
-- `bot.py` — общие команды (`/start`, `/help`, `/table`, `/refresh`), кнопка `🔄 Sync` (общий `sync_table`: `invalidate_cache(user_id_of(event))` + прогрев, одно сообщение `SYNCED`), хелперы `_start_session` / `_ack_and_hide` / `_require_admin`, сборка роутеров (`register_routers`) и запуск (`_start_health_server` ➔ `_setup_bot` ➔ `_run_polling`).
+- `bot.py` — общие команды (`/start`, `/help`, `/table`), парная точка входа `sync_notes` (`/refresh` + `🔄 Sync` одним хендлером с двумя декораторами; `sync_table`: `invalidate_cache(user_id_of(event))` + прогрев, одно сообщение `SYNCED`), хелперы `_start_session` / `_ack_and_hide` / `_require_admin`, сборка роутеров (`register_routers`) и запуск (`_start_health_server` ➔ `_setup_bot` ➔ `_run_polling`).
 - `config.py` — `.env`, `Bot`/`Dispatcher`, доступ к Sheets (`notes_sheet_name`, `setup_user_sheets`), настройки AI (`ai_api_key`, `ai_base_url` → `https://openrouter.ai`, `ai_model` → `openrouter/free`).
 - `services/sheets.py` — единственный слой `gspread`: `SheetCache` (TTL 300 с, фоллбэк на stale при 429), `NoteRepository` (в т.ч. `get_ai_prompt`), `ColumnService`.
 - `services/ai_parser.py` — разбор сообщения в `AiNoteDraft`: `fetch_page` (ссылка, таймаут 10 с), `extract_json`, `system_prompt` из шапки листа + `AI_PROMT`, `field_headers`, `draft_fields`, `AiVisionError`. Клиент модели инъектируется. Ссылка без JSON от модели -> `_link_draft` (URL в `title` и в колонку `URL`), для текста — `AiDraftError` с началом ответа (`RAW_PREVIEW_LIMIT`).
@@ -15,8 +15,9 @@ Telegram-бот заметок: `Python 3.13`, `aiogram 3.x`, `gspread`, `openai
 - `services/buttons.py`, `services/keyboards.py` — тексты и `InlineKeyboardMarkup` (`_rows` проверяет `per_row >= 1`).
 - `services/telegram_io.py` — вывод в Telegram (`show_main_menu`, `status_message`, `send_parts`, `send_error_message`, `alert`) и `user_lock(user_id)`.
 - `services/text_utils.py` — `escape_html`, `split_messages`, `note_card_text`, `with_min_width`.
-- `handlers/` — `notes_handler.py` (публичный API пакета, карточка, поиск, удаление), `wizard_handler.py` (мастер заметки), `sources_handler.py` (источники), `ai_note_handler.py` (✨ AI Note: `AiStates`, черновик, сохранение), `columns_handler.py` (колонки), `notes_common.py` (`NoteStates`, `NoteContext`, хелперы).
+- `handlers/` — `notes_handler.py` (публичный API пакета, карточка, поиск, удаление), `wizard_handler.py` (мастер заметки: `start_add_note` = `/add_note` + `➕ Add note`, `start_add_source` = `/add_source` + `🆕 Add source`), `sources_handler.py` (источники), `ai_note_handler.py` (✨ AI Note: `start_ai_note` = `/ai_note` + `✨ AI Note`, `AiStates`, черновик, сохранение), `columns_handler.py` (колонки), `notes_common.py` (`NoteStates`, `NoteContext`, хелперы).
 - Порядок роутеров: общие команды ➔ ✨ AI Note ➔ заметки ➔ колонки. `ai_router` подключается только в `bot.register_routers`.
+- Парные точки входа (слэш-команда + inline-кнопка) — один хендлер с двумя декораторами и `event: types.Message | types.CallbackQuery`; для callback — `await ack_callback(event)` в начале. Не объединять `cb_add_ai_source` (у него своё состояние `AiStates.wait_message`).
 
 ## 3. Инварианты
 - **Колонки:** `ID | SOURCE | TITLE | DESCRIPTION | URL | SCREEN | [пользовательские...] | COMMENT`.

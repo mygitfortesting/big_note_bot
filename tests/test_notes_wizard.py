@@ -60,7 +60,7 @@ def test_add_note_shows_sources_and_new_source_button(use_repo: UseRepo) -> None
     add_message = message("", user_id=1)
     state = FakeState()
 
-    asyncio.run(wizard_handler.cmd_add_note(add_message, state))
+    asyncio.run(wizard_handler.start_add_note(add_message, state))
 
     assert add_message.sent, "Bot sent nothing"
     sent = add_message.sent[-1]
@@ -83,7 +83,7 @@ def test_add_note_without_sources_asks_for_new_source(use_repo: UseRepo) -> None
     empty_message = message("", user_id=1)
     state = FakeState()
 
-    asyncio.run(wizard_handler.cmd_add_note(empty_message, state))
+    asyncio.run(wizard_handler.start_add_note(empty_message, state))
 
     assert empty_message.sent, "Bot sent nothing"
     sent = empty_message.sent[-1]
@@ -105,7 +105,7 @@ def test_add_source_lists_existing_sources_and_cancel(use_repo: UseRepo) -> None
 
     asyncio.run(wizard_handler.ask_new_source(message("", user_id=1), state))
     add_callback = callback(Cb.SRC_ADD)
-    asyncio.run(wizard_handler.cb_add_source(add_callback, state))
+    asyncio.run(wizard_handler.start_add_source(add_callback, state))
 
     assert add_callback.message.sent, "Bot sent nothing"
     sent = add_callback.message.sent[-1]

@@ -293,7 +293,7 @@ def test_cmd_refresh_clears_cache_and_rereads(
     repo, calls = _prepare_sync(use_repo, monkeypatch, user_id=99)
     refresh_message = message("/refresh", user_id=99)
 
-    asyncio.run(bot.cmd_refresh(refresh_message, FakeState()))
+    asyncio.run(bot.sync_notes(refresh_message, FakeState()))
 
     assert calls == [99]
     assert [note.note_id for note in repo.list_notes()] == ["1", "2"]
@@ -308,7 +308,7 @@ def test_cb_sync_invalidates_cache_and_refreshes_notes(
     sync_callback = callback(Cb.SYNC)
     state = FakeState()
 
-    asyncio.run(bot.cb_sync(sync_callback, state))
+    asyncio.run(bot.sync_notes(sync_callback, state))
 
     assert calls == [1]
     assert repo.get("2") is not None
@@ -329,7 +329,7 @@ def test_sync_reports_read_error(
     monkeypatch.setattr(repo, "all_values", _broken)
     refresh_message = message("/refresh", user_id=1)
 
-    asyncio.run(bot.cmd_refresh(refresh_message, FakeState()))
+    asyncio.run(bot.sync_notes(refresh_message, FakeState()))
 
     texts = [sent["text"] for sent in refresh_message.sent]
     assert any("Simulated Sheets failure" in text for text in texts)

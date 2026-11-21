@@ -169,9 +169,9 @@ pytest tests -m "not integration" -q
 
 | Тест | Проверяемое правило |
 | --- | --- |
-| `test_add_note_shows_sources_and_new_source_button` | «➕ Add note» показывает источники и «➕ Новый источник». |
+| `test_add_note_shows_sources_and_new_source_button` | «/add_note» и «➕ Add note» (`start_add_note`) показывают источники и «➕ Новый источник». |
 | `test_add_note_without_sources_asks_for_new_source` | Без источников сразу просит имя нового. |
-| `test_add_source_lists_existing_sources_and_cancel` | «➕ Add source» и кнопка «➕ New source»: уникальный список источников, Cancel и Main menu. |
+| `test_add_source_lists_existing_sources_and_cancel` | «/add_source» и «➕ Add source» (`start_add_source`): уникальный список источников, Cancel и Main menu. |
 | `test_add_source_prompt_formatting` | Промпт нового источника: список уникален, имя экранируется, без источников нет «Existing:». |
 | `test_select_source_then_name_creates_note` | Источник → TITLE → заметка создана и отсортирована. |
 
@@ -276,6 +276,7 @@ async-клиент не годится. Сценарии собираются х
 | Тест | Проверяемое правило |
 | --- | --- |
 | `test_ai_note_without_key_explains_setup` | Без `AI_API_KEY` ✨ AI Note показывает понятное сообщение, состояние не ставится. |
+| `test_ai_note_entry_points_share_scenario` | «/ai_note» и «✨ AI Note» — один хендлер `start_ai_note`: одинаковый экран и состояние с ключом и без него. |
 | `test_ai_note_draft_from_text_then_save` | Текст → статус анализа → «✨ AI Draft» с кнопками → «✅ Save» пишет поля и открывает карточку; строка ищется по `TITLE`. |
 | `test_ai_note_follows_renamed_and_new_columns` | `DESCRIPTION` ➔ `SUMMARY` и новая `SALARY`: попадают в системный промпт, предпросмотр и соответствующие колонки листа. |
 | `test_ai_note_photo_saves_file_id_into_screen` | Фото разбирается, при сохранении `file_id` самого большого размера попадает в SCREEN. |
@@ -305,8 +306,8 @@ async-клиент не годится. Сценарии собираются х
 | `test_cmd_table_ignores_event_without_user` | Без `from_user` «/table» молча завершается: ни отказа, ни ссылки (через публичный `bot.cmd_table`). |
 | `test_cmd_table_reports_answer_error` | Ошибка отправки ссылки уходит в `send_error_message` (общий хелпер `_start_session`). |
 | `test_back_to_main_clears_state_and_opens_menu` | «🏠 Main menu»: кнопка погашена, FSM сброшен, главное меню открыто. |
-| `test_cmd_refresh_clears_cache_and_rereads` | `/refresh` инвалидирует кэш по `user_id` события (`calls == [99]`), сразу перечитывает лист (новая строка видна) и отправляет одно сообщение `buttons.SYNCED`. |
-| `test_cb_sync_invalidates_cache_and_refreshes_notes` | «🔄 Sync» ушла в тот же обработчик: кэш сброшен, свежая заметка читается, отправлено ровно одно сообщение — `buttons.SYNCED`. |
+| `test_cmd_refresh_clears_cache_and_rereads` | `/refresh` (общий `sync_notes`) инвалидирует кэш по `user_id` события (`calls == [99]`), сразу перечитывает лист (новая строка видна) и отправляет одно сообщение `buttons.SYNCED`. |
+| `test_cb_sync_invalidates_cache_and_refreshes_notes` | «🔄 Sync» идёт через тот же `sync_notes`: кэш сброшен, свежая заметка читается, отправлено ровно одно сообщение — `buttons.SYNCED`. |
 | `test_sync_reports_read_error` | Ошибка чтения после сброса кэша показывается пользователю, главное меню всё равно открывается. |
 | `test_serve_health_logs_start_failure` | Падение `run_health_server` в фоновом потоке попадает в лог (`logger.exception`), а не исчезает молча. |
 | `test_start_health_server_runs_target_in_thread` | `_start_health_server` запускает именно `_serve_health` в daemon-потоке. |
